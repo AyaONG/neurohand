@@ -82,7 +82,7 @@ describe('versioned local progress', () => {
 
   it('salvages valid records without overwriting corrupted source data', () => {
     const memory = memoryStorage();
-    const raw = JSON.stringify({ schemaVersion: 2, current: null, history: [complete(), { ...complete('bad'), exercises: {} }] });
+    const raw = JSON.stringify({ schemaVersion: 3, current: null, history: [complete(), { ...complete('bad'), exercises: {} }] });
     memory.values.set(STORAGE_KEY, raw);
     const store = new ProgressStore(() => memory);
     expect(store.data.history).toHaveLength(1); expect(store.notice).toContain('повреждены');
@@ -137,7 +137,7 @@ describe('progress comparisons and local calendar', () => {
 
 it('deduplicates loaded ids and keeps a final record over stale current data', () => {
   const memory = memoryStorage();
-  memory.values.set(STORAGE_KEY, JSON.stringify({ schemaVersion: 2, current: session(), history: [complete(), complete()] }));
+  memory.values.set(STORAGE_KEY, JSON.stringify({ schemaVersion: 3, current: session(), history: [complete(), complete()] }));
   const store = new ProgressStore(() => memory);
   expect(store.data.history).toHaveLength(1); expect(store.data.current).toBeNull();
 });

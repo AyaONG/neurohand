@@ -169,7 +169,7 @@ function finishTraining(): void {
 
 function showResults(): void {
   historyPanel.hidden = true;
-  if (program.session.status === "in_progress") program = pauseProgram(program, "results");
+  if (program.session.status === "in_progress") program = pauseProgram(program, "results", new Date().toISOString());
   resetFrameClock();
   stage.hidden = true;
   panel.hidden = true;
@@ -229,7 +229,7 @@ function processFrame(timestampMs: number): void {
     canvas.height = height;
     if (width > 0 && height > 0) viewport.style.aspectRatio = `${width} / ${height}`;
     // A changed scene invalidates partial holds and requires readiness again.
-    if (program.phase === "exercise") program = beginProgram(program);
+    if (program.phase === "exercise") program = beginProgram(program, "resize");
     resetFrameClock();
   }
   const hasNewFrame = width > 0 && height > 0 && video.readyState >= 2 && video.currentTime !== lastVideoTime;
@@ -310,7 +310,7 @@ function loop(timestampMs: number): void {
   try {
     processFrame(timestampMs);
   } catch {
-    program = pauseProgram(program, "camera");
+    program = pauseProgram(program, "camera", new Date().toISOString());
     stopCamera();
     setHint("Ошибка обработки кадра. Повторите запуск камеры.", true);
     return;
@@ -354,14 +354,14 @@ start.addEventListener("click", async () => {
     pauseButton.disabled = false;
     for (const track of stream.getTracks()) track.addEventListener("ended", () => {
       if (!running) return;
-      program = pauseProgram(program, "camera");
+      program = pauseProgram(program, "camera", new Date().toISOString());
       stopCamera();
       setHint("Камера отключена. Подключите её и повторите запуск.", true);
     });
     requestId = requestAnimationFrame(loop);
   } catch (error) {
     if (token !== generation) return;
-    program = pauseProgram(program, "camera");
+    program = pauseProgram(program, "camera", new Date().toISOString());
     stopCamera();
     setHint(cameraError(error), true);
   } finally {
@@ -379,7 +379,7 @@ pauseButton.addEventListener("click", () => {
     pauseButton.textContent = "Пауза";
     setHint("Раскрой ладонь перед продолжением");
   } else {
-    program = pauseProgram(program, "manual");
+    program = pauseProgram(program, "manual", new Date().toISOString());
     resetFrameClock();
     pauseButton.textContent = "Продолжить";
     setHint("Тренировка на паузе. Нажми «Продолжить»");
@@ -403,13 +403,13 @@ document.addEventListener("keydown", event => {
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden && (running || start.disabled)) {
-    program = pauseProgram(program, "visibility");
+    program = pauseProgram(program, "visibility", new Date().toISOString());
     stopCamera();
     setHint("Камера остановлена. Нажмите «Продолжить тренировку» для продолжения.");
   }
 });
 window.addEventListener("pagehide", () => {
-  program = pauseProgram(program, "visibility");
+  program = pauseProgram(program, "visibility", new Date().toISOString());
   stopCamera();
 });
 if (import.meta.hot) import.meta.hot.dispose(stopCamera);
@@ -419,7 +419,7 @@ updateScore();
 setHint("Выбери руку и нажми «Начать тренировку»");
 
 historyButton.addEventListener("click", () => {
-  if (program.session.status === "in_progress" && sessionStarted) program = pauseProgram(program, "results");
+  if (program.session.status === "in_progress" && sessionStarted) program = pauseProgram(program, "results", new Date().toISOString());
   stopCamera();
   stage.hidden = true;
   panel.hidden = true;

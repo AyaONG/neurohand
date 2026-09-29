@@ -1,8 +1,10 @@
 import type { Calibration, ExerciseId, Point, Reading } from "./types";
 import type { HandGeometry } from "./geometry";
-import { calibrate, DEFAULT_OPEN_CURL, readGrip } from "./validator";
+import { calibrate, DEFAULT_OPEN_CURL, readGrip, PINCH_CLOSE, GRIP_CLOSE_RATIO } from "./validator";
 import { initialTimedFsm, stepTimed, stepHold, type TimedFsm, type HoldState, type Target } from "./fsm";
 import { createSession, finishSession, pauseSession, recordActivity, recordRep, resumeSession, startExercise, type Session } from "./session";
+import { closeActive, interruptAttempt } from './attempts';
+import { emptyObserver, observeMovement, type AttemptObserver } from './attempt-observer';
 import type { SuccessFeedback } from "./feedback";
 
 export const PROGRAM_TIMING = { calibrationMs: 2000, minSamples: 20, readyMs: 1000, transitionMs: 3000, maxGapMs: 250, lostPauseMs: 2000 } as const;
@@ -13,6 +15,7 @@ type PromptState = { active: string | null; candidate: string | null; since: num
 const emptyPrompt = (): PromptState => ({ active: null, candidate: null, since: null, clearSince: null });
 
 export type Program = {
+  attemptObserver: AttemptObserver;
   phase: ProgramPhase; session: Session; calibration: Calibration | null;
   pauseReason: PauseReason | null; fsm: TimedFsm; hold: HoldState;
   samples: HandGeometry[]; sampleSince: number | null; readySince: number | null;
@@ -27,7 +30,7 @@ export type ProgramFrame = {
 
 export function createProgram(session = createSession()): Program {
   return {
-    phase: "intro", session, calibration: null, pauseReason: null,
+    attemptObserver: emptyObserver(), phase: "intro", session, calibration: null, pauseReason: null,
     fsm: initialTimedFsm(), hold: { holdMs: 0, reps: session.exercises.hold.reps },
     samples: [], sampleSince: null, readySince: null, transitionSince: null,
     lastTimestamp: null, lastValidTimestamp: null, missingSince: null, wasActive: false,
@@ -36,27 +39,27 @@ export function createProgram(session = createSession()): Program {
 }
 
 function clearTransient(p: Program): Program {
-  return { ...p, fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise].reps),
+  return { ...p, attemptObserver: emptyObserver(), fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise].reps),
     hold: { holdMs: 0, reps: p.session.exercises.hold.reps }, samples: [], sampleSince: null,
     readySince: null, lastTimestamp: null, lastValidTimestamp: null, missingSince: null,
     wasActive: false, holdEligible: false, holdInterrupted: false, prompt: emptyPrompt(), reading: null, success: null };
 }
 
-export function beginProgram(p: Program): Program {
+export function beginProgram(p: Program, reason: "resize" | "pause" = "pause"): Program {
   if (p.session.status !== "in_progress") return p;
   const currentExercise = EXERCISES.find(id => p.session.exercises[id].reps < p.session.exercises[id].target) ?? "hold";
   return clearTransient({ ...p, phase: "preparing", pauseReason: null,
-    session: { ...resumeSession(p.session), currentExercise } });
+    session: { ...resumeSession(p.session), attempts: closeActive(p.session.attempts, reason), currentExercise } });
 }
 
-export function pauseProgram(p: Program, reason: PauseReason): Program {
+export function pauseProgram(p: Program, reason: PauseReason, wallTime?: string): Program {
   if (p.session.status !== "in_progress") return p;
-  return clearTransient({ ...p, phase: "paused", pauseReason: reason, session: pauseSession(p.session) });
+  return clearTransient({ ...p, phase: "paused", pauseReason: reason, session: pauseSession({ ...p.session, attempts: closeActive(p.session.attempts, p.missingSince !== null ? "tracking" : reason === "manual" ? "pause" : reason, wallTime) }) });
 }
 
 export function stopProgram(p: Program, wallTime: string): Program {
   if (p.session.status !== "in_progress") return p;
-  return clearTransient({ ...p, phase: "summary", session: finishSession(p.session, "stopped", wallTime) });
+  return clearTransient({ ...p, phase: "summary", session: finishSession({ ...p.session, attempts: closeActive(p.session.attempts, p.missingSince !== null ? "tracking" : "manual", wallTime) }, "stopped", wallTime) });
 }
 
 export function guidedTarget(width: number, height: number, completed: number, radiusRatio = 0.12): Target {
@@ -89,8 +92,17 @@ export function stepProgram(previous: Program, frame: ProgramFrame): Program {
   let p: Program = { ...previous, lastTimestamp: now };
   const gap = previous.lastValidTimestamp === null ? 0 : now - previous.lastValidTimestamp;
   const contiguous = previous.lastValidTimestamp !== null && gap <= PROGRAM_TIMING.maxGapMs;
+  if (p.session.attempts?.active && (!g || !contiguous)) {
+    const first = previous.missingSince === null;
+    const lostMs = previous.lastTimestamp === null ? 0 : now - previous.lastTimestamp;
+    let attempts = interruptAttempt(p.session.attempts, lostMs, first);
+    // A basic closure/continuous hold cannot be verified across a tracking gap.
+    // Freeze until recovery or the tracking-pause threshold, then finalize once.
+    if (g) attempts = closeActive(attempts, "tracking", frame.wallTime);
+    p = { ...p, session: { ...p.session, attempts } };
+  }
   if (!g || !contiguous) {
-    p = { ...p, fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise].reps),
+    p = { ...p, attemptObserver: emptyObserver(), fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise].reps),
       hold: { ...p.hold, holdMs: 0 }, holdEligible: false, wasActive: false,
       holdInterrupted: p.holdInterrupted || p.hold.holdMs > 0,
       samples: [], sampleSince: null, readySince: null, success: null,
@@ -99,7 +111,7 @@ export function stepProgram(previous: Program, frame: ProgramFrame): Program {
   if (!g) {
     const missingSince = p.missingSince ?? now;
     p = { ...p, missingSince, lastValidTimestamp: null, reading: null };
-    return now - missingSince >= PROGRAM_TIMING.lostPauseMs ? pauseProgram(p, "tracking") : p;
+    return now - missingSince >= PROGRAM_TIMING.lostPauseMs ? pauseProgram(p, "tracking", frame.wallTime) : p;
   }
   p = { ...p, missingSince: null, lastValidTimestamp: now,
     reading: p.session.currentExercise === "pinch" ? frame.pinch : grip };
@@ -123,7 +135,7 @@ export function stepProgram(previous: Program, frame: ProgramFrame): Program {
     const currentExercise = EXERCISES[index + 1];
     return { ...p, phase: "exercise", session: { ...p.session, currentExercise },
       fsm: initialTimedFsm(p.session.exercises[currentExercise].reps),
-      holdEligible: false, wasActive: false, success: null, prompt: emptyPrompt(), transitionSince: null };
+      attemptObserver: emptyObserver(), holdEligible: false, wasActive: false, success: null, prompt: emptyPrompt(), transitionSince: null };
   }
   if (p.phase !== "exercise") return p;
   const mode = p.session.currentExercise;
@@ -146,10 +158,20 @@ export function stepProgram(previous: Program, frame: ProgramFrame): Program {
   }
   const prompt = updatePrompt(p.prompt, p.reading?.error?.code ?? null, now);
   session = recordActivity(session, mode, dt, bestHold, prompt.newCode);
-  const recorded = recordRep(session, { sessionId: session.id, exercise: mode, action });
-  p = { ...p, session: recorded, wasActive: true, prompt: prompt.state,
+  let recorded = recordRep(session, { sessionId: session.id, exercise: mode, action });
+  const confirmed = recorded !== session;
+  const observed = observeMovement(recorded, p.attemptObserver, {
+    now, wallTime: frame.wallTime, dt,
+    ready: previous.fsm.phase === "ARMED", open: !!p.reading?.open, error: !!p.reading?.error,
+    distance: mode === "hold" ? (frame.palm && frame.target ? Math.hypot(frame.palm.x - frame.target.x, frame.palm.y - frame.target.y) / frame.target.r : 0)
+      : mode === "pinch" ? g.nd(4, 8) : Math.max(...[8, 12, 16, 20].map(t => g.curl(t))),
+    successDistance: mode === "pinch" ? PINCH_CLOSE : p.calibration!.openCurl * GRIP_CLOSE_RATIO,
+    holdMs: bestHold, confirmed,
+  });
+  recorded = observed.session;
+  p = { ...p, attemptObserver: observed.observer, session: recorded, wasActive: true, prompt: prompt.state,
     success: p.reading?.error ? null : p.success };
-  if (recorded !== session) {
+  if (confirmed) {
     p.success = { exercise: mode, reps: action, at: now };
     if (action === session.exercises[mode].target) {
       if (mode === "hold") return { ...p, phase: "summary", wasActive: false,

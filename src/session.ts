@@ -1,3 +1,4 @@
+import { emptyAttempts, closeActive, type AttemptLog } from './attempts';
 import type { ExerciseId } from "./types";
 
 export const GUIDED_TARGETS = { pinch: 5, grip: 5, hold: 3 } as const;
@@ -6,7 +7,8 @@ export type ExerciseResult = {
   activeMs: number; promptEpisodes: Record<string, number>; bestHoldMs: number | null;
 };
 export type Session = {
-  schemaVersion: 2;
+  schemaVersion: 3;
+  attempts: AttemptLog | null;
   id: string;
   startedAt: string;
   endedAt: string | null;
@@ -28,7 +30,7 @@ export type RepConfirmed = {
 
 export function createSession(id = crypto.randomUUID(), startedAt = new Date().toISOString()): Session {
   return {
-    schemaVersion: 2, id, startedAt, endedAt: null, status: "in_progress", paused: false,
+    schemaVersion: 3, attempts: emptyAttempts(), id, startedAt, endedAt: null, status: "in_progress", paused: false,
     mode: "guided", protocolId: "guided-v1", recognitionVersion: "landmarks-v1-norm008",
     hand: "unspecified", currentExercise: "pinch",
     settings: { pinchTarget: 5, gripTarget: 5, holdTargetCount: 3, holdTargetMs: 2000, targetRadiusRatio: 0.12 },
@@ -78,5 +80,5 @@ export function recordActivity(session: Session, exercise: ExerciseId, dtMs: num
 export function finishSession(session: Session, status: "completed" | "stopped", endedAt: string): Session {
   if (session.status !== "in_progress") return session;
   if (status === "completed" && !Object.values(session.exercises).every(result => result.reps === result.target)) return session;
-  return { ...session, status, endedAt, paused: true };
+  return { ...session, attempts: closeActive(session.attempts, 'manual', endedAt), status, endedAt, paused: true };
 }

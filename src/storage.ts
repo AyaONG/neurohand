@@ -1,11 +1,14 @@
+import { closeActive } from './attempts';
+import { parseAttemptLog } from './attempt-storage';
 import type { Session, ExerciseResult } from './session';
 import type { ExerciseId } from './types';
 
-export const STORAGE_KEY = 'neurohand:progress:v2';
+export const STORAGE_KEY = 'neurohand:progress:v3';
+export const V2_STORAGE_KEY = 'neurohand:progress:v2';
 export const LEGACY_KEY = 'neurohand-session';
 const ids = ['pinch', 'grip', 'hold'] as const;
 export type LegacyRecord = { kind: 'legacy'; counters: Partial<Record<ExerciseId, number>> };
-export type Progress = { schemaVersion: 2; current: Session | null; history: Session[] };
+export type Progress = { schemaVersion: 3; current: Session | null; history: Session[] };
 export const MEMORY_NOTICE = 'В этом браузере история не сохраняется. Итоги доступны до закрытия страницы';
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
 const number = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
@@ -14,11 +17,13 @@ const date = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d\d-
 
 /** Validate and project onto an explicit allowlist: never persist frame data or extra fields. */
 export function parseSession(v: unknown): Session | null {
-  if (!object(v) || v.schemaVersion !== 2 || typeof v.id !== 'string' || !v.id || !date(v.startedAt) ||
+  if (!object(v) || ![2, 3].includes(v.schemaVersion) || typeof v.id !== 'string' || !v.id || !date(v.startedAt) ||
       !['in_progress', 'completed', 'stopped'].includes(v.status) || v.mode !== 'guided' || v.protocolId !== 'guided-v1' ||
       typeof v.recognitionVersion !== 'string' || !v.recognitionVersion || !['left', 'right', 'unspecified'].includes(v.hand) ||
       !ids.includes(v.currentExercise) || typeof v.paused !== 'boolean' || !object(v.settings) || !object(v.exercises)) return null;
   if (v.status === 'in_progress' ? v.endedAt !== null : !date(v.endedAt) || Date.parse(v.endedAt) < Date.parse(v.startedAt)) return null;
+  const attempts = v.schemaVersion === 2 ? null : parseAttemptLog(v.attempts);
+  if (attempts === undefined || (attempts?.active && (v.status !== 'in_progress' || attempts.active.exerciseId !== v.currentExercise))) return null;
   const s = v.settings;
   if (![s.pinchTarget, s.gripTarget, s.holdTargetCount].every(n => count(n) && n > 0) ||
       !number(s.holdTargetMs) || s.holdTargetMs <= 0 || !number(s.targetRadiusRatio) || s.targetRadiusRatio <= 0 || s.targetRadiusRatio > 1) return null;
@@ -33,7 +38,7 @@ export function parseSession(v: unknown): Session | null {
     exercises[id] = { reps: r.reps, target: r.target, started: r.started, activeMs: r.activeMs,
       promptEpisodes: Object.fromEntries(Object.entries(r.promptEpisodes)), bestHoldMs: r.bestHoldMs };
   }
-  return { schemaVersion: 2, id: v.id, startedAt: v.startedAt, endedAt: v.endedAt, status: v.status,
+  return { schemaVersion: 3, attempts, id: v.id, startedAt: v.startedAt, endedAt: v.endedAt, status: v.status,
     mode: v.mode, protocolId: v.protocolId, recognitionVersion: v.recognitionVersion, hand: v.hand,
     settings: { pinchTarget: s.pinchTarget, gripTarget: s.gripTarget, holdTargetCount: s.holdTargetCount,
       holdTargetMs: s.holdTargetMs, targetRadiusRatio: s.targetRadiusRatio },
@@ -59,7 +64,7 @@ export function comparable(a: Session, b: Session): boolean {
 }
 
 export class ProgressStore {
-  data: Progress = { schemaVersion: 2, current: null, history: [] };
+  data: Progress = { schemaVersion: 3, current: null, history: [] };
   legacy: LegacyRecord | null = null;
   notice = '';
   private storage: Pick<Storage, 'getItem' | 'setItem'> | null = null;
@@ -70,13 +75,16 @@ export class ProgressStore {
   constructor(getStorage: () => Pick<Storage, 'getItem' | 'setItem'> = () => window.localStorage) {
     try {
       this.storage = getStorage();
-      const raw = this.storage.getItem(STORAGE_KEY);
+      const currentRaw = this.storage.getItem(STORAGE_KEY);
+      const migrating = currentRaw === null;
+      const raw = currentRaw ?? this.storage.getItem(V2_STORAGE_KEY);
       if (raw !== null) {
         const v: unknown = JSON.parse(raw);
-        if (!object(v) || v.schemaVersion !== 2 || !Array.isArray(v.history)) throw new Error('schema');
+        if (!object(v) || v.schemaVersion !== (migrating ? 2 : 3) || !Array.isArray(v.history)) throw new Error('schema');
         let invalid = false;
         const seen = new Set<string>();
         for (const entry of v.history) {
+          if (!object(entry) || entry.schemaVersion !== v.schemaVersion) { invalid = true; continue; }
           const session = parseSession(entry);
           if (!session || session.status === 'in_progress') { invalid = true; continue; }
           if (!seen.has(session.id)) { this.data.history.push(session); seen.add(session.id); }
@@ -85,10 +93,17 @@ export class ProgressStore {
         this.data.history = this.data.history.slice(0, 30);
         if (v.current !== null) {
           const current = parseSession(v.current);
-          if (!current || current.status !== 'in_progress') invalid = true;
-          else if (!seen.has(current.id)) this.data.current = { ...current, paused: true };
+          if (!current || v.current.schemaVersion !== v.schemaVersion || current.status !== 'in_progress') invalid = true;
+          else if (!seen.has(current.id)) this.data.current = { ...current, paused: true, attempts: closeActive(current.attempts, 'reload') };
         }
         if (invalid) throw new Error('record');
+        // Migrate only after validating the whole source. Keep v2 byte-for-byte intact.
+        // Also persist reload finalization before a second reload can replay it.
+        if (migrating || this.data.current) {
+          const serialized = JSON.stringify(this.data);
+          this.storage.setItem(STORAGE_KEY, serialized);
+          this.lastWritten = serialized;
+        }
       }
     } catch {
       this.writable = false;
@@ -108,6 +123,7 @@ export class ProgressStore {
     const clean = parseSession(session);
     if (!clean) return;
     const event = JSON.stringify([clean.id, clean.status, clean.paused, clean.currentExercise, clean.hand,
+      clean.attempts?.active?.attemptId, clean.attempts?.records.length, clean.attempts?.active?.interruptions.count,
       ids.map(id => [clean.exercises[id].reps, clean.exercises[id].started, clean.exercises[id].promptEpisodes])]);
     if (!force && event === this.lastEvent && timestampMs - this.lastSaveMs < 2000) return;
     if (this.data.history.some(s => s.id === clean.id)) return; // finalized snapshots are immutable

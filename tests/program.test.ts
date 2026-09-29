@@ -170,3 +170,94 @@ describe("guided-v1", () => {
     expect(stopped.session.exercises.pinch.reps).toBe(1);
   });
 });
+
+const partialPinch = (() => {
+  const lm = JSON.parse(readFileSync(new URL('./fixtures/grip_open.json', import.meta.url), 'utf8'));
+  // Intentional closure between the existing open/close thresholds, away from other fingertips.
+  lm[4].x = lm[8].x + (lm[4].x - lm[8].x) * 0.4 / open.nd(4, 8);
+  lm[4].y = lm[8].y + (lm[4].y - lm[8].y) * 0.4 / open.nd(4, 8);
+  return HandGeometry.create(lm, 640, 480)!;
+})();
+
+describe('attempt events alongside unchanged basic counters', () => {
+  it('records five confirmed pinch attempts once, without counting static readiness', () => {
+    const h = harness(); h.prepare(); h.run(open, 5000);
+    expect(h.p.session.attempts?.records).toHaveLength(0);
+    expect(h.p.session.attempts?.active).toBeNull();
+    for (let i = 0; i < 5; i++) h.rep(pinch);
+    expect(h.p.session.exercises.pinch.reps).toBe(5);
+    expect(h.p.session.attempts?.records).toHaveLength(5);
+    expect(h.p.session.attempts?.records.every(a => a.outcome === 'completed')).toBe(true);
+    expect(new Set(h.p.session.attempts?.records.map(a => a.attemptId)).size).toBe(5);
+  });
+
+  it.each(['manual', 'results', 'visibility', 'camera'] as const)('handles %s without hidden time or repeated finalization', reason => {
+    const h = harness(); h.prepare(); h.run(partialPinch, 400);
+    const before = h.p.session.attempts?.active;
+    expect(before).not.toBeNull();
+    h.p = pauseProgram(h.p, reason, '2026-09-29T13:00:00Z');
+    const once = h.p.session.attempts!.records[0];
+    expect(once.activeMs).toBe(before!.activeMs);
+    expect(once.outcome).toBe(reason === 'visibility' || reason === 'camera' ? 'unscorable' : 'partial');
+    h.run(pinch, 10000); h.p = pauseProgram(h.p, reason);
+    expect(h.p.session.attempts!.records).toEqual([once]);
+    expect(h.p.session.exercises.pinch.reps).toBe(0);
+    h.p = beginProgram(h.p); h.run(open, 1400); h.rep(pinch);
+    expect(h.p.session.exercises.pinch.reps).toBe(1);
+    expect(h.p.session.attempts!.records).toHaveLength(2);
+    expect(h.p.session.attempts!.records[1].outcome).toBe('completed');
+  });
+
+  it('freezes a short loss, closes as unscorable on recovery, and requires a fresh open gesture', () => {
+    const h = harness(); h.prepare(); h.run(partialPinch, 400);
+    const before = h.p.session.attempts!.active!;
+    h.run(null, 100);
+    expect(h.p.session.attempts!.active?.activeMs).toBe(before.activeMs);
+    h.run(pinch, 500);
+    expect(h.p.session.exercises.pinch.reps).toBe(0);
+    expect(h.p.session.attempts!.records).toHaveLength(1);
+    expect(h.p.session.attempts!.records[0]).toMatchObject({ outcome: 'unscorable', endReason: 'tracking',
+      activeMs: before.activeMs, interruptions: { count: 1, durationMs: 120 } });
+    h.rep(pinch);
+    expect(h.p.session.exercises.pinch.reps).toBe(1);
+    expect(h.p.session.attempts!.records).toHaveLength(2);
+  });
+
+  it('long tracking loss pauses and never measures its gap as active time', () => {
+    const h = harness(); h.prepare(); h.run(partialPinch, 400);
+    const before = h.p.session.attempts!.active!;
+    h.run(null, 3000);
+    expect(h.p.phase).toBe('paused');
+    expect(h.p.session.attempts!.records).toHaveLength(1);
+    expect(h.p.session.attempts!.records[0]).toMatchObject({ outcome: 'unscorable', activeMs: before.activeMs });
+    h.frame(open); h.run(open, 1400); h.rep(pinch);
+    expect(h.p.session.attempts!.records).toHaveLength(2);
+  });
+
+  it('stops with measured partial work, leaves old counters alone, and resets on resize', () => {
+    const h = harness(); h.prepare(); h.run(partialPinch, 400);
+    const stopped = stopProgram(h.p, '2026-09-29T13:00:00Z');
+    expect(stopped.session.status).toBe('stopped');
+    expect(stopped.session.attempts!.records[0]).toMatchObject({ outcome: 'partial', endReason: 'manual' });
+    expect(stopped.session.exercises.pinch.reps).toBe(0);
+    const resized = beginProgram(h.p, 'resize');
+    expect(resized.session.attempts!.records[0]).toMatchObject({ outcome: 'unscorable', endReason: 'resize' });
+    expect(resized.attemptObserver.baseline).toBeNull();
+  });
+});
+
+it('does not score a loss as partial when the user stops before tracking recovers', () => {
+  const h = harness(); h.prepare(); h.run(partialPinch, 400); h.frame(null);
+  const stopped = stopProgram(h.p, '2026-09-29T13:00:00Z');
+  expect(stopped.session.attempts!.records[0]).toMatchObject({ outcome: 'unscorable', endReason: 'tracking' });
+  const paused = pauseProgram(h.p, 'manual');
+  expect(paused.session.attempts!.records[0].outcome).toBe('unscorable');
+});
+
+it('keeps the old static-hold counter but never fabricates a movement onset', () => {
+  const h = harness(); h.reachHold();
+  const before = h.p.session.attempts!.records.length;
+  h.run(open, 6600); // Fixed synthetic target and unmoving palm: legacy hold detector still counts.
+  expect(h.p.session.exercises.hold.reps).toBe(3);
+  expect(h.p.session.attempts!.records.length).toBe(before);
+});

@@ -1,3 +1,4 @@
+import { attemptSummary } from './attempts';
 import type { Session } from "./session";
 import type { ExerciseId } from "./types";
 
@@ -61,6 +62,8 @@ export function renderResults(container: HTMLElement, session: Session, onResume
     item.textContent = `${labels[id]} — ${result.started ? `активное время: ${(result.activeMs / 1000).toFixed(1)} с` : "Не начато"}`;
     details.append(item);
   }
-  container.append(details, notice, disclaimer);
+  const attempts = document.createElement('p');
+  attempts.textContent = attemptSummary(session.attempts, Object.values(session.exercises).reduce((sum, r) => sum + r.reps, 0));
+  container.append(details, attempts, notice, disclaimer);
   heading.focus();
 }

@@ -174,7 +174,8 @@ describe("app wiring with simulated camera frames", () => {
   });
 
   it("runs the full guided route without tabs, finalizes once, stops tracks and starts a separate training", async () => {
-    await setup();
+    const memory = memoryStorage();
+    await setup('', memory);
     await elements["btn-start"].fire("click");
     await elements["btn-start"].fire("click");
     expect(mocks.camera).toHaveBeenCalledOnce();
@@ -208,6 +209,9 @@ describe("app wiring with simulated camera frames", () => {
     expect(elements.results.children[0].textContent).toBe("Тренировка завершена");
     const snapshot = elements.results.children[2].children.map(row => row.textContent);
     expect(snapshot).toEqual(["Пинцет: 5 / 5", "Сжатия: 5 / 5", "Перенос: 3 / 3"]);
+    const attempts = JSON.parse(memory.getItem('neurohand:progress:v3')!).history[0].attempts.records;
+    expect(attempts).toHaveLength(13);
+    expect(attempts.every((a: { outcome: string }) => a.outcome === 'completed')).toBe(true);
     expect(mocks.stop).toHaveBeenCalledOnce();
     expect(mocks.close).toHaveBeenCalledOnce();
     expect(nextFrame).toBeNull();
@@ -271,7 +275,7 @@ describe("persistent progress through real handlers with isolated storage", () =
     await elements["btn-start"].fire("click");
     prepare(); pinch();
     await elements["btn-results"].fire("click");
-    const before = JSON.parse(memory.getItem("neurohand:progress:v2")!).current;
+    const before = JSON.parse(memory.getItem("neurohand:progress:v3")!).current;
     expect(before.exercises.pinch.reps).toBe(1);
     // Reload modules and DOM, retaining only this test's isolated storage.
     vi.resetModules(); nextFrame = null;
@@ -279,7 +283,7 @@ describe("persistent progress through real handlers with isolated storage", () =
     expect(nextFrame).toBeNull();
     expect(elements.results.hidden).toBe(false);
     expect(elements.results.children.at(-1)?.textContent).toContain("прервана перезагрузкой");
-    expect(JSON.parse(memory.getItem("neurohand:progress:v2")!).current.exercises.pinch.activeMs).toBe(before.exercises.pinch.activeMs);
+    expect(JSON.parse(memory.getItem("neurohand:progress:v3")!).current.exercises.pinch.activeMs).toBe(before.exercises.pinch.activeMs);
     await elements.results.children.find(child => child.id === "btn-resume")!.fire("click");
     await elements["btn-start"].fire("click");
     for (let i = 0; i < 150; i++) frame(fixture("pinch_closed"));
@@ -289,13 +293,13 @@ describe("persistent progress through real handlers with isolated storage", () =
     await elements["btn-results"].fire("click");
     await elements.results.children.find(child => child.id === "btn-finish")!.fire("click");
     await elements["btn-results"].fire("click");
-    const saved = JSON.parse(memory.getItem("neurohand:progress:v2")!);
+    const saved = JSON.parse(memory.getItem("neurohand:progress:v3")!);
     expect(saved.current).toBeNull(); expect(saved.history).toHaveLength(1);
     expect(saved.history[0].status).toBe("stopped"); expect(saved.history[0].id).toBe(before.id);
     expect(saved.history[0].exercises.pinch.reps).toBe(2);
     await elements.results.children.find(child => child.id === "btn-new")!.fire("click");
     await elements["btn-start"].fire("click");
-    expect(JSON.parse(memory.getItem("neurohand:progress:v2")!).history).toEqual(saved.history);
+    expect(JSON.parse(memory.getItem("neurohand:progress:v3")!).history).toEqual(saved.history);
   });
 
   it("pauses for history, displays empty and populated tables, and details never start camera", async () => {
