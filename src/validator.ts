@@ -10,7 +10,8 @@ export const DEFAULT_OPEN_CURL = 1;
 export const GRIP_CLOSE_RATIO = 0.5;
 export const GRIP_OPEN_RATIO = 0.85;
 
-export function readPinch(g: HandGeometry, previousWrongJoint: number | null = null, overrides: Partial<Config> = {}): Reading {
+export function readPinch(g: HandGeometry, timestampMs: number, previousWrongJoint: number | null = null, overrides: Partial<Config> = {}): Reading {
+  if (!Number.isFinite(timestampMs)) return { open: false, closed: false, error: null };
   const good = g.nd(4, 8);
   const wrongTips = [12, 16, 20].filter(t => g.nd(4, t) < PINCH_CLOSE);
 
@@ -39,33 +40,36 @@ export function readPinch(g: HandGeometry, previousWrongJoint: number | null = n
 /** Caller-owned state: no hidden cross-session memory. */
 export type PinchTrackingState = {
   previousWrongJoint: number | null;
-  nullFrames: number;
+  lastValidTimestamp: number | null;
 };
 
 export function stepPinchTracking(
   state: PinchTrackingState,
   g: HandGeometry | null,
+  timestampMs: number,
   overrides: Partial<Config> = {},
 ): { state: PinchTrackingState; reading: Reading | null } {
   const config = resolveConfig(overrides);
-  if (g === null) {
-    const nullFrames = Math.min(state.nullFrames + 1, config.NULL_FRAME_TIMEOUT);
-    return {
-      state: {
-        previousWrongJoint: nullFrames >= config.NULL_FRAME_TIMEOUT ? null : state.previousWrongJoint,
-        nullFrames,
-      },
-      reading: null,
-    };
+  // Ignore invalid or out-of-order clocks without corrupting tracking state.
+  if (!Number.isFinite(timestampMs) ||
+      (state.lastValidTimestamp !== null && timestampMs < state.lastValidTimestamp)) {
+    return { state: { ...state }, reading: null };
   }
-  const reading = readPinch(g, state.previousWrongJoint, config);
+  const expired = state.lastValidTimestamp === null ||
+    timestampMs - state.lastValidTimestamp > config.NULL_TIMEOUT_MS;
+  const previous = expired ? null : state.previousWrongJoint;
+  if (g === null) {
+    return { state: { ...state, previousWrongJoint: previous }, reading: null };
+  }
+  const reading = readPinch(g, timestampMs, previous, config);
   return {
-    state: { previousWrongJoint: reading.error?.joints[0] ?? null, nullFrames: 0 },
+    state: { previousWrongJoint: reading.error?.joints[0] ?? null, lastValidTimestamp: timestampMs },
     reading,
   };
 }
 
-export function readGrip(g: HandGeometry, cal: Calibration): Reading {
+export function readGrip(g: HandGeometry, cal: Calibration, timestampMs: number): Reading {
+  if (!Number.isFinite(timestampMs)) return { open: false, closed: false, error: null };
   const closeThr = cal.openCurl * GRIP_CLOSE_RATIO;
   const openThr  = cal.openCurl * GRIP_OPEN_RATIO;
   const tips = [8, 12, 16, 20];

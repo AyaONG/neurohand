@@ -10,8 +10,8 @@ nav button.active { border-color: #38bdf8; }
 #video { transform: scaleX(-1); object-fit: cover; }
 #hint { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px; text-align: center; font-size: 20px; background: rgba(0,0,0,.55); }
 #hint:empty { display: none; }
-#hint.error { color: #fecaca; }
+#hint.error, #score.error, #debug.error { color: #fecaca; }
 #score { position: absolute; top: 12px; left: 12px; font-size: 22px; font-weight: 600; }
-#debug { position: absolute; top: 12px; right: 12px; margin: 0; padding: 8px; font-size: 12px; background: rgba(0,0,0,.6); }
+#debug { position: absolute; top: 50px; left: 12px; margin: 0; padding: 8px; font-size: 11px; max-height: 55%; overflow: auto; background: rgba(0,0,0,.6); }
 #panel { display: flex; gap: 8px; justify-content: center; padding: 12px; }
 #results { max-width: 720px; margin: 0 auto; padding: 16px; line-height: 1.6; }
