@@ -71,7 +71,7 @@ export function observeMovement(session: Session, previous: AttemptObserver, f: 
   }
   const a = log.active!;
   let metrics = a.metrics;
-  if (stable && !f.error && metrics.kind !== 'skipped') {
+  if (stable && !f.error && metrics.kind !== 'skipped' && metrics.kind !== 'ring') {
     metrics = metrics.kind === 'hold'
       ? { ...metrics, bestHoldMs: Math.max(metrics.bestHoldMs, f.holdMs), progress: Math.max(metrics.progress, progress) }
       : { ...metrics, bestDistance: Math.min(metrics.bestDistance, distance), progress: Math.max(metrics.progress, progress) };

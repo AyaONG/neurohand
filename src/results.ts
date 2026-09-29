@@ -1,11 +1,16 @@
+import { RING_NAMES } from './ring';
 import { pairCounts, FINGER_NAMES } from './opposition';
-import { attemptSummary } from './attempts';
+import { attemptSummary, type AttemptEndReason } from './attempts';
 import type { Session } from "./session";
 import type { ExerciseId } from "./types";
 
-const labels: Record<ExerciseId, string> = { pinch: "Пинцет", grip: "Сжатия", hold: "Перенос", opposition: "Найди пару" };
+const labels: Record<ExerciseId, string> = { pinch: "Пинцет", grip: "Сжатия", hold: "Перенос", opposition: "Найди пару", ring: "Обведи кольцо" };
 
 export function getResults(session: Session): { empty: boolean; rows: { exercise: ExerciseId; text: string }[] } {
+  if (session.mode === 'ring') {
+    const a = session.attempts?.active ?? session.attempts?.records.at(-1);
+    return { empty: !session.exercises.ring!.started, rows: [{ exercise: 'ring', text: `Обведи кольцо: ${a?.metrics.kind === 'ring' ? a.metrics.marks : 0} / 12 · ${a?.outcome === 'completed' ? 'полный путь с возвратом' : 'полный круг не подтверждён'}` }] };
+  }
   if (session.mode === 'opposition') {
     const c = pairCounts(session);
     return { empty: !session.exercises.opposition!.started, rows: [{ exercise: 'opposition',
@@ -27,11 +32,11 @@ export function renderResults(container: HTMLElement, session: Session, onResume
   heading.textContent = session.status === "completed" ? "Тренировка завершена" : session.status === "stopped" ? "Тренировка остановлена" : "Текущие итоги";
   heading.tabIndex = -1;
   const description = document.createElement("p");
-  description.textContent = session.status === "completed" ? (session.mode === 'opposition' ? 'Маршрут занятия завершён. Ниже — фактически выполненные и частичные результаты.' : "Выполнено 3 из 3 заданий.") : session.status === "stopped" ? "Тренировка остановлена. Сохранён выполненный объём." : model.empty
-    ? (session.mode === 'opposition' ? 'Движений пока нет. Разведи пальцы, затем соедини указанную пару.' : "Движений пока нет. Начни с пинцета: раскрой ладонь, затем соедини большой и указательный пальцы.")
+  description.textContent = session.status === "completed" ? (session.mode !== 'guided' ? 'Маршрут занятия завершён. Ниже — фактически выполненные и частичные результаты.' : "Выполнено 3 из 3 заданий.") : session.status === "stopped" ? "Тренировка остановлена. Сохранён выполненный объём." : model.empty
+    ? (session.mode === 'ring' ? 'Удержи кончик на старте кольца и начни движение по часовой стрелке.' : session.mode === 'opposition' ? 'Движений пока нет. Разведи пальцы, затем соедини указанную пару.' : "Движений пока нет. Начни с пинцета: раскрой ладонь, затем соедини большой и указательный пальцы.")
     : "Тренировка на паузе. Результаты сохранятся при продолжении.";
   const list = document.createElement("ul");
-  list.className = session.mode === "opposition" ? "result-cards pair-results" : "result-cards";
+  list.className = session.mode !== "guided" ? "result-cards pair-results" : "result-cards";
   for (const row of model.rows) {
     const item = document.createElement("li");
     item.textContent = row.text;
@@ -43,10 +48,10 @@ export function renderResults(container: HTMLElement, session: Session, onResume
   resume.addEventListener("click", session.status === "in_progress" ? onResume : onNew ?? onResume);
   const metrics = document.createElement("p");
   const activeMs = Object.values(session.exercises).reduce((sum, result) => sum + result.activeMs, 0);
-  metrics.textContent = `Активное время: ${(activeMs / 1000).toFixed(1)} с.` + (session.mode === 'opposition' ? '' : ` Лучшее удержание: ${((session.exercises.hold.bestHoldMs ?? 0) / 1000).toFixed(1)} с.`);
-  const exerciseIds: ExerciseId[] = session.mode === 'opposition' ? ['opposition'] : ['pinch', 'grip', 'hold'];
+  metrics.textContent = `Активное время: ${(activeMs / 1000).toFixed(1)} с.` + (session.mode !== 'guided' ? '' : ` Лучшее удержание: ${((session.exercises.hold.bestHoldMs ?? 0) / 1000).toFixed(1)} с.`);
+  const exerciseIds: ExerciseId[] = session.mode === 'ring' ? ['ring'] : session.mode === 'opposition' ? ['opposition'] : ['pinch', 'grip', 'hold'];
   const prompts = document.createElement("p");
-  prompts.hidden = session.mode === "opposition";
+  prompts.hidden = session.mode !== "guided";
   prompts.textContent = exerciseIds.map(id => `${labels[id]} — эпизоды подсказок: ${session.exercises[id]!.started ? Object.values(session.exercises[id]!.promptEpisodes).reduce((a, b) => a + b, 0) : "Не начато"}`).join(". ");
   const notice = document.createElement("p");
   notice.className = "results-note";
@@ -82,6 +87,21 @@ export function renderResults(container: HTMLElement, session: Session, onResume
       pairs.append(row);
     }
     container.append(pairs);
+  }
+  if (session.mode === 'ring') {
+    const outcomes = { completed: 'Выполнено', partial: 'Частично', incomplete: 'Не завершено', unscorable: 'Не удалось оценить', cancelled: 'Остановлено' };
+    const reasons: Record<AttemptEndReason, string> = { confirmed: 'возврат к старту', returned: 'возврат', manual: 'завершено вручную', pause: 'пауза', results: 'просмотр итогов', visibility: 'вкладка скрыта', tracking: 'потеря руки', camera: 'камера недоступна', reload: 'перезагрузка', resize: 'размер экрана изменён', timeout: 'время истекло', skip: 'пропуск', off_path: 'выход из коридора / неверное направление', jump: 'скачок координат' };
+    const list = document.createElement('ul');
+    for (const a of session.attempts!.records) {
+      if (a.metrics.kind !== 'ring') continue;
+      const item = document.createElement('li');
+      item.textContent = `${RING_NAMES[session.ring!.tip]} · ${a.metrics.marks} / 12 · ${outcomes[a.outcome!]} · ${(a.activeMs / 1000).toFixed(1)} с · ${reasons[a.endReason!]}`;
+      list.append(item);
+    }
+    container.append(list);
+    const note = document.createElement('p');
+    note.textContent = 'Измеряется экранный путь кончика, не изолированное движение пальца. Направление: по часовой стрелке.';
+    container.append(note);
   }
   heading.focus();
 }

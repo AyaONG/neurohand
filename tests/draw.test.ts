@@ -69,3 +69,14 @@ it('highlights exactly the thumb and chosen tip at mirrored video coordinates', 
   expect(highlighted).toHaveLength(2);
   expect(highlighted.map(fill => fill.path.commands[0].slice(1, 3))).toEqual([4, 16].map(t => [1280 - lm[t].x * 1280, 360]));
 });
+
+it('draws twelve numbered marks, a start and the chosen cursor in the same mirrored coordinates', () => {
+  vi.stubGlobal('Path2D', Path);
+  const lm = Array.from({ length: 21 }, (_, i) => ({ x: 0.2 + i * 0.01, y: 0.5, z: 0 }));
+  const { ctx, fills } = context();
+  drawHandOverlay(ctx as unknown as CanvasRenderingContext2D, lm, null, { ...config, ring: { tip: 20, marks: 8 } });
+  expect(ctx.fillText.mock.calls.map(call => call[0])).toEqual([...Array.from({ length: 12 }, (_, i) => String(i + 1)), 'СТАРТ →']);
+  expect(fills.filter(f => f.style === '#15803d')).toHaveLength(8);
+  const cursor = fills.find(f => f.style === '#f472b6')!;
+  expect(cursor.path.commands[0].slice(1, 3)).toEqual([1280 - lm[20].x * 1280, lm[20].y * 720]);
+});

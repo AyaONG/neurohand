@@ -1,3 +1,5 @@
+import { settleRing } from './ring';
+import { emptyRingState, restartRing, stepRingProgram, ringInstruction, type RingState } from './ring-program';
 import { emptyOppositionState, restartOpposition, stepOppositionProgram, oppositionInstruction, type OppositionState } from './opposition-program';
 import { settleOpposition } from './opposition';
 import type { Calibration, BasicExerciseId, ExerciseId, Point, Reading } from "./types";
@@ -17,7 +19,7 @@ type PromptState = { active: string | null; candidate: string | null; since: num
 const emptyPrompt = (): PromptState => ({ active: null, candidate: null, since: null, clearSince: null });
 
 export type Program = {
-  attemptObserver: AttemptObserver; oppositionState: OppositionState;
+  ringState: RingState; attemptObserver: AttemptObserver; oppositionState: OppositionState;
   phase: ProgramPhase; session: Session; calibration: Calibration | null;
   pauseReason: PauseReason | null; fsm: TimedFsm; hold: HoldState;
   samples: HandGeometry[]; sampleSince: number | null; readySince: number | null;
@@ -26,13 +28,14 @@ export type Program = {
   prompt: PromptState; reading: Reading | null; success: SuccessFeedback | null;
 };
 export type ProgramFrame = {
+  ring?: { point: Point | null; width: number; height: number };
   timestampMs: number; wallTime: string; geometry: HandGeometry | null;
   pinch: Reading | null; fullHand: boolean; palm: Point | null; target: Target | null;
 };
 
 export function createProgram(session = createSession()): Program {
   return {
-    oppositionState: emptyOppositionState(), attemptObserver: emptyObserver(), phase: "intro", session, calibration: null, pauseReason: null,
+    ringState: emptyRingState(), oppositionState: emptyOppositionState(), attemptObserver: emptyObserver(), phase: "intro", session, calibration: null, pauseReason: null,
     fsm: initialTimedFsm(), hold: { holdMs: 0, reps: session.exercises.hold.reps },
     samples: [], sampleSince: null, readySince: null, transitionSince: null,
     lastTimestamp: null, lastValidTimestamp: null, missingSince: null, wasActive: false,
@@ -41,7 +44,7 @@ export function createProgram(session = createSession()): Program {
 }
 
 function clearTransient(p: Program): Program {
-  return { ...p, oppositionState: emptyOppositionState(), attemptObserver: emptyObserver(), fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise]!.reps),
+  return { ...p, ringState: emptyRingState(), oppositionState: emptyOppositionState(), attemptObserver: emptyObserver(), fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise]!.reps),
     hold: { holdMs: 0, reps: p.session.exercises.hold.reps }, samples: [], sampleSince: null,
     readySince: null, lastTimestamp: null, lastValidTimestamp: null, missingSince: null,
     wasActive: false, holdEligible: false, holdInterrupted: false, prompt: emptyPrompt(), reading: null, success: null };
@@ -49,6 +52,7 @@ function clearTransient(p: Program): Program {
 
 export function beginProgram(p: Program, reason: "resize" | "pause" = "pause"): Program {
   if (p.session.status !== "in_progress") return p;
+  if (p.session.mode === "ring") return restartRing(p, reason);
   if (p.session.mode === "opposition") return restartOpposition(p, reason);
   const currentExercise = EXERCISES.find(id => p.session.exercises[id]!.reps < p.session.exercises[id]!.target) ?? "hold";
   return clearTransient({ ...p, phase: "preparing", pauseReason: null,
@@ -57,7 +61,7 @@ export function beginProgram(p: Program, reason: "resize" | "pause" = "pause"): 
 
 export function pauseProgram(p: Program, reason: PauseReason, wallTime?: string): Program {
   if (p.session.status !== "in_progress") return p;
-  const session = settleOpposition(pauseSession({ ...p.session, attempts: closeActive(p.session.attempts, p.missingSince !== null ? "tracking" : reason === "manual" ? "pause" : reason, wallTime) }));
+  const session = settleRing(settleOpposition(pauseSession({ ...p.session, attempts: closeActive(p.session.attempts, p.missingSince !== null ? "tracking" : reason === "manual" ? "pause" : reason, wallTime) })));
   return clearTransient({ ...p, phase: session.status === 'completed' ? 'summary' : 'paused', pauseReason: reason, session });
 }
 
@@ -84,6 +88,7 @@ function updatePrompt(state: PromptState, code: string | null, now: number): { s
 }
 
 export function stepProgram(previous: Program, frame: ProgramFrame): Program {
+  if (previous.session.mode === "ring") return stepRingProgram(previous, frame);
   if (previous.session.mode === "opposition") return stepOppositionProgram(previous, frame);
   const now = frame.timestampMs;
   if (previous.session.status !== "in_progress" || previous.phase === "intro" || !Number.isFinite(now) ||
@@ -188,6 +193,7 @@ export function stepProgram(previous: Program, frame: ProgramFrame): Program {
 }
 
 export function programInstruction(p: Program, now: number): string {
+  if (p.session.mode === "ring") return ringInstruction(p);
   if (p.session.mode === "opposition") return oppositionInstruction(p);
   if (p.phase === "paused") return p.pauseReason === "tracking"
     ? "Рука потеряна. Покажи открытую ладонь для продолжения" : "Тренировка на паузе. Нажми «Продолжить»";

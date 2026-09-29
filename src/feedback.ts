@@ -24,10 +24,10 @@ export function getFeedback(input: {
   };
   const age = input.success ? input.timestampMs - input.success.at : Infinity;
   if (input.success?.exercise === input.exercise && age >= 0 && age < SUCCESS_MESSAGE_MS) {
-    const label = { pinch: "Захват засчитан", grip: "Сжатие засчитано", hold: "Цель засчитана", opposition: "Пара засчитана" }[input.exercise];
+    const label = { pinch: "Захват засчитан", grip: "Сжатие засчитано", hold: "Цель засчитана", opposition: "Пара засчитана", ring: "Круг засчитан" }[input.exercise];
     return { text: `✓ ${label} · ${input.success.reps}${input.target ? ` из ${input.target}` : ""}`, success: age < SUCCESS_COLOR_MS, error: false, celebrating: true };
   }
-  const next = input.phase === "CONFIRMED" && input.exercise !== "hold" && input.exercise !== "opposition"
+  const next = input.phase === "CONFIRMED" && input.exercise !== "hold" && input.exercise !== "opposition" && input.exercise !== "ring"
     ? input.exercise === "pinch" ? "Разведи пальцы для следующего захвата" : "Раскрой кисть для следующего сжатия"
     : input.instruction;
   return { text: next, success: false, error: false, celebrating: false };

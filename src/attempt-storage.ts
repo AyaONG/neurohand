@@ -1,3 +1,4 @@
+import { parseRingSettings } from './ring';
 import { isFingerTip, PAIR_RULES } from './opposition';
 import type { Attempt, AttemptLog, AttemptMetrics } from './attempts';
 
@@ -9,7 +10,7 @@ const text = (v: unknown): v is string => typeof v === 'string' && v.length > 0 
 
 /** Strict projection: neither arbitrary metrics nor frame/landmark fields reach storage. */
 function parseAttempt(v: unknown, active: boolean): Attempt | null {
-  if (!object(v) || !text(v.attemptId) || !['pinch', 'grip', 'hold', 'opposition'].includes(v.exerciseId) ||
+  if (!object(v) || !text(v.attemptId) || !['pinch', 'grip', 'hold', 'opposition', 'ring'].includes(v.exerciseId) ||
       !text(v.protocolVersion) || !text(v.recognizerVersion) || !text(v.rulesVersion) ||
       !['left', 'right', 'unspecified'].includes(v.hand) || !date(v.startedAt) || !date(v.lastObservedAt) ||
       Date.parse(v.lastObservedAt) < Date.parse(v.startedAt) || !number(v.activeMs) || !number(v.validTrackingMs) ||
@@ -17,7 +18,7 @@ function parseAttempt(v: unknown, active: boolean): Attempt | null {
       !number(v.interruptions.durationMs) || !object(v.settings) || !object(v.metrics)) return null;
   if (active ? v.outcome !== null || v.endedAt !== null || v.endReason !== null
     : !['completed', 'partial', 'incomplete', 'unscorable', 'cancelled'].includes(v.outcome) ||
-      !['confirmed', 'returned', 'manual', 'pause', 'results', 'visibility', 'tracking', 'camera', 'reload', 'resize', 'timeout', 'skip'].includes(v.endReason) ||
+      !['confirmed', 'returned', 'manual', 'pause', 'results', 'visibility', 'tracking', 'camera', 'reload', 'resize', 'timeout', 'skip', 'off_path', 'jump'].includes(v.endReason) ||
       !date(v.endedAt) || Date.parse(v.endedAt) < Date.parse(v.lastObservedAt)) return null;
   if ((v.outcome === 'completed') !== (v.endReason === 'confirmed')) return null;
   const s = v.settings, m = v.metrics;
@@ -28,8 +29,14 @@ function parseAttempt(v: unknown, active: boolean): Attempt | null {
   if (pair && (!isFingerTip(s.pairTip) || !count(s.sequenceIndex) || s.partialRatio !== PAIR_RULES.partialRatio ||
       s.maxActiveMs !== PAIR_RULES.maxActiveMs || v.rulesVersion !== PAIR_RULES.version)) return null;
   if (v.endReason === 'skip' && (!pair || v.outcome !== 'cancelled' || m.kind !== 'skipped')) return null;
+  const ring = v.exerciseId === 'ring' ? parseRingSettings(s.ring) : null;
+  if (v.exerciseId === 'ring' && (!ring || v.rulesVersion !== ring.rulesVersion || s.maxActiveMs !== ring.maxActiveMs || s.target !== 1)) return null;
   let metrics: AttemptMetrics;
-  if (m.kind === 'skipped') {
+  if (ring) {
+    if (m.kind !== 'ring' || !count(m.marks) || m.marks > 12 || typeof m.returned !== 'boolean' || !number(m.pathLength) || m.progress !== m.marks / 12 ||
+        (m.returned && m.marks !== 12) || ((v.outcome === 'completed') !== m.returned)) return null;
+    metrics = { kind: 'ring', marks: m.marks, returned: m.returned, pathLength: m.pathLength, progress: m.progress };
+  } else if (m.kind === 'skipped') {
     if (!pair || active || v.endReason !== 'skip' || m.progress !== 0 || v.activeMs !== 0 || v.validTrackingMs !== 0) return null;
     metrics = { kind: 'skipped', progress: 0 };
   } else if (v.exerciseId === 'hold') {
@@ -43,6 +50,7 @@ function parseAttempt(v: unknown, active: boolean): Attempt | null {
   return { attemptId: v.attemptId, exerciseId: v.exerciseId, protocolVersion: v.protocolVersion,
     recognizerVersion: v.recognizerVersion, hand: v.hand, rulesVersion: v.rulesVersion,
     settings: { target: s.target, holdTargetMs: s.holdTargetMs, targetRadiusRatio: s.targetRadiusRatio, maxActiveMs: s.maxActiveMs,
+      ...(ring ? { ring } : {}),
       ...(pair ? { pairTip: s.pairTip, sequenceIndex: s.sequenceIndex, partialRatio: s.partialRatio } : {}) },
     startedAt: v.startedAt, lastObservedAt: v.lastObservedAt, endedAt: v.endedAt, outcome: v.outcome, endReason: v.endReason,
     activeMs: v.activeMs, validTrackingMs: v.validTrackingMs,

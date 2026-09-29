@@ -43,7 +43,7 @@ p { overflow-wrap: anywhere; }
 #task-title { margin: 8px 0; text-align: center; }
 #task-description { display: none; }
 #score { text-align: center; font-size: clamp(24px, 4vw, 32px); font-weight: 700; margin: 8px 0 20px; font-variant-numeric: tabular-nums; }
-#viewport { position: relative; aspect-ratio: 4 / 3; background: #101a28; border: 1px solid #3b5069; border-radius: 20px; overflow: hidden; }
+#viewport { position: relative; aspect-ratio: 4 / 3; background: #101a28; box-shadow: 0 0 0 1px #3b5069; border-radius: 20px; overflow: hidden; }
 #video, #canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 #video { transform: scaleX(-1); object-fit: contain; }
 #canvas { pointer-events: none; }
@@ -89,7 +89,7 @@ td { min-width: 90px; }
 }
 
 .training-choice { display: grid; gap: 10px; max-width: 580px; margin: 24px auto; }
-#pair-options { border: 1px solid #50627c; border-radius: 14px; padding: 20px; margin: 16px auto; max-width: 760px; text-align: left; }
+#pair-options, #ring-options { border: 1px solid #50627c; border-radius: 14px; padding: 20px; margin: 16px auto; max-width: 760px; text-align: left; }
 #pair-options label { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; margin-right: 20px; }
 #pair-options input { width: 22px; height: 22px; accent-color: #fcd34d; }
 #pair-options input:focus-visible { outline: 3px solid #7dd3fc; outline-offset: 4px; }

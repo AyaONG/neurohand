@@ -1,3 +1,4 @@
+import { ringSettings, settleRing, type RingTip, type RingSettings } from './ring';
 import { emptyAttempts, closeActive, type AttemptLog } from './attempts';
 import { createOppositionPlan, settleOpposition, PAIR_RULES, type FingerTip, type OppositionPlan } from './opposition';
 import type { BasicExerciseId, ExerciseId } from "./types";
@@ -14,15 +15,16 @@ export type Session = {
   startedAt: string;
   endedAt: string | null;
   status: "in_progress" | "completed" | "stopped";
-  mode: "guided" | "opposition";
+  mode: "guided" | "opposition" | "ring";
+  ring?: RingSettings;
   opposition?: OppositionPlan;
-  protocolId: "guided-v1" | "opposition-v1";
+  protocolId: "guided-v1" | "opposition-v1" | "ring-v1";
   recognitionVersion: string;
   hand: "left" | "right" | "unspecified";
   settings: { pinchTarget: number; gripTarget: number; holdTargetCount: number; holdTargetMs: number; targetRadiusRatio: number };
   currentExercise: ExerciseId;
   paused: boolean;
-  exercises: Record<BasicExerciseId, ExerciseResult> & { opposition?: ExerciseResult };
+  exercises: Record<BasicExerciseId, ExerciseResult> & { opposition?: ExerciseResult; ring?: ExerciseResult };
 };
 export type RepConfirmed = {
   sessionId: string;
@@ -82,6 +84,10 @@ export function recordActivity(session: Session, exercise: ExerciseId, dtMs: num
 
 export function finishSession(session: Session, status: "completed" | "stopped", endedAt: string): Session {
   if (session.status !== "in_progress") return session;
+  if (session.mode === "ring") {
+    const settled = settleRing({ ...session, attempts: closeActive(session.attempts, "manual", endedAt) });
+    return settled.status === "completed" ? settled : status === "completed" ? session : { ...settled, status, endedAt, paused: true };
+  }
   if (session.mode === "opposition") {
     const settled = settleOpposition({ ...session, attempts: closeActive(session.attempts, 'manual', endedAt) });
     if (settled.status === 'completed') return settled;
@@ -97,4 +103,9 @@ export function createOppositionSession(allowed: FingerTip[], id = crypto.random
   return { ...base, mode: 'opposition', protocolId: 'opposition-v1', recognitionVersion: PAIR_RULES.recognizerVersion,
     currentExercise: 'opposition', opposition, exercises: { ...base.exercises,
       opposition: { reps: 0, target: opposition.sequence.length, started: false, activeMs: 0, promptEpisodes: {}, bestHoldMs: null } } };
+}
+
+export function createRingSession(tip: RingTip = 8, id = crypto.randomUUID(), startedAt = new Date().toISOString()): Session {
+  const base = createSession(id, startedAt);
+  return settleRing({ ...base, mode: 'ring', currentExercise: 'ring', protocolId: 'ring-v1', recognitionVersion: 'ring-screen-v1', ring: ringSettings(tip) });
 }

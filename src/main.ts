@@ -1,3 +1,6 @@
+import { createRingSession } from './session';
+import { RING_NAMES, RING_TIPS, screenPoint, type RingTip } from './ring';
+import { finishRingAttempt } from './ring-program';
 import { createOppositionSession } from './session';
 import { currentPair, FINGER_TIPS, FINGER_NAMES, pairCounts, pairTask } from './opposition';
 import { finishOppositionAttempt, skipOppositionPair } from './opposition-program';
@@ -41,19 +44,23 @@ const home = document.querySelector<HTMLElement>("#home")!;
 const announcements = document.querySelector<HTMLElement>("#announcements")!;
 const cameraPlaceholder = document.querySelector<HTMLElement>("#camera-placeholder")!;
 const handLabel = document.querySelector<HTMLElement>("#hand-label")!;
-const labels: Record<ExerciseId, string> = { pinch: "Пинцет", grip: "Эспандер", hold: "Перенос", opposition: "Найди пару" };
+const labels: Record<ExerciseId, string> = { pinch: "Пинцет", grip: "Эспандер", hold: "Перенос", opposition: "Найди пару", ring: "Обведи кольцо" };
 
 const trainingChoice = document.querySelector<HTMLSelectElement>('#training-choice')!;
+const ringOptions = document.querySelector<HTMLElement>('#ring-options')!;
+const ringTipChoice = document.querySelector<HTMLSelectElement>('#ring-tip')!;
 const pairOptions = document.querySelector<HTMLElement>('#pair-options')!;
 const pairChoices = FINGER_TIPS.map(tip => ({ tip, input: document.querySelector<HTMLInputElement>(`#pair-${tip}`)! }));
 const pairGuide = document.querySelector<SVGElement>('#pair-guide')!;
 const finishAttemptButton = document.querySelector<HTMLButtonElement>('#btn-finish-attempt')!;
 const skipPairButton = document.querySelector<HTMLButtonElement>('#btn-skip-pair')!;
-function chooseTraining(): void { pairOptions.hidden = trainingChoice.value !== 'opposition'; }
+function chooseTraining(): void { ringOptions.hidden = trainingChoice.value !== 'ring'; pairOptions.hidden = trainingChoice.value !== 'opposition'; }
 trainingChoice.addEventListener('change', chooseTraining);
 document.querySelector<HTMLButtonElement>('#btn-choose-pairs')!.addEventListener('click', () => {
   trainingChoice.value = 'opposition'; chooseTraining(); trainingChoice.focus();
 });
+
+document.querySelector<HTMLButtonElement>('#btn-choose-ring')!.addEventListener('click', () => { trainingChoice.value = 'ring'; chooseTraining(); trainingChoice.focus(); });
 
 const historyPanel = document.querySelector<HTMLElement>("#history")!;
 const historyButton = document.querySelector<HTMLButtonElement>("#btn-history")!;
@@ -97,10 +104,19 @@ function setHint(message: string, error = false, celebrating = false): void {
 function updateScore(): void {
   const pairs = mode === 'opposition';
   if (pairs) pairGuide.removeAttribute('hidden'); else pairGuide.setAttribute('hidden', '');
-  taskDescription.style.display = pairs ? 'block' : '';
+  taskDescription.style.display = pairs || mode === 'ring' ? 'block' : '';
   finishAttemptButton.hidden = skipPairButton.hidden = !pairs || !sessionStarted;
+  finishAttemptButton.hidden = !sessionStarted || (!pairs && mode !== 'ring');
   finishAttemptButton.disabled = !program.session.attempts?.active || program.session.status !== 'in_progress';
   skipPairButton.disabled = !!program.session.attempts?.active || !!program.session.opposition?.awaitingRelease || program.session.status !== 'in_progress';
+  if (mode === 'ring') {
+    const active = program.session.attempts?.active;
+    const metrics = active?.metrics;
+    taskTitle.textContent = `Обведи кольцо · ${RING_NAMES[program.session.ring!.tip]}`;
+    taskDescription.textContent = 'Экранный путь кончика. Можно двигать всей кистью. По часовой стрелке, до 15 с на попытку.';
+    score.textContent = `Отметки: ${metrics?.kind === 'ring' ? metrics.marks : 0} / 12 · затем вернись на старт`;
+    programStatus.textContent = 'Одно задание · частичный путь тоже сохранится'; tabs.hidden = true; return;
+  }
   if (pairs) {
     const tip = currentPair(program.session), counts = pairCounts(program.session), plan = program.session.opposition!;
     taskTitle.textContent = `Найди пару · большой + ${FINGER_NAMES[tip]}`;
@@ -121,7 +137,7 @@ function updateScore(): void {
     const id = tab.dataset.mode as ExerciseId;
     const result = program.session.exercises[id]!;
     const state = result.reps === result.target ? "Готово" : id === mode ? "Сейчас" : "Далее";
-    const text = `${EXERCISES.indexOf(id as BasicExerciseId) + 1}. ${{ pinch: "Огоньки", grip: "Мяч", hold: "Цели", opposition: "Пары" }[id]} · ${state}`;
+    const text = `${EXERCISES.indexOf(id as BasicExerciseId) + 1}. ${{ pinch: "Огоньки", grip: "Мяч", hold: "Цели", opposition: "Пары", ring: "Кольцо" }[id]} · ${state}`;
     if (tab.textContent !== text) tab.textContent = text;
     tab.classList.toggle("active", id === mode);
     tab.setAttribute("aria-current", id === mode ? "step" : "false");
@@ -149,7 +165,7 @@ function showExercise(): void {
   results.hidden = true;
   home.hidden = sessionStarted;
   stage.hidden = !sessionStarted;
-  tabs.hidden = !sessionStarted || mode === "opposition";
+  tabs.hidden = !sessionStarted || program.session.mode !== "guided";
   programStatus.hidden = !sessionStarted;
   hint.hidden = false;
   handLabel.hidden = sessionStarted;
@@ -277,12 +293,13 @@ function processFrame(timestampMs: number): void {
   } else fps = 0;
   const fullHand = !!landmarks && landmarks.every(p => p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1);
   const g = landmarks && fullHand ? HandGeometry.create(landmarks, width, height) : null;
-  const tracked = mode === "opposition" ? { state: tracking, reading: null } : stepPinchTracking(tracking, g, timestampMs);
+  const tracked = program.session.mode !== "guided" ? { state: tracking, reading: null } : stepPinchTracking(tracking, g, timestampMs);
   tracking = tracked.state;
   const target = width > 0 && height > 0 ? guidedTarget(width, height, program.session.exercises.hold.reps) : null;
   const previousSuccess = program.success;
   program = stepProgram(program, {
     timestampMs, wallTime: new Date().toISOString(), geometry: g, fullHand,
+    ring: mode === 'ring' ? { width, height, point: g && landmarks ? screenPoint(landmarks[program.session.ring!.tip], width, height) : null } : undefined,
     pinch: tracked.reading, palm: g ? mirrorPoint(g.palmCenter(), width) : null, target,
   });
   persist(timestampMs);
@@ -306,7 +323,7 @@ function processFrame(timestampMs: number): void {
     target: program.session.exercises[mode]!.target,
   });
   if (program.phase === "paused") setHint(instruction);
-  else if (mode === 'opposition') setHint(feedback.text, feedback.error, feedback.celebrating);
+  else if (mode === 'opposition' || mode === 'ring') setHint(feedback.text, feedback.error, feedback.celebrating);
   else if (g && (program.phase === "preparing" || program.phase === "transition")) setHint(instruction);
   else setHint(feedback.text, feedback.error, feedback.celebrating);
   updateScore();
@@ -319,7 +336,8 @@ function processFrame(timestampMs: number): void {
     gripOpenness: mode === "grip" && g && program.calibration ? gripOpenness(g, program.calibration) : undefined,
     target: mode === "hold" && nextTarget ? { ...nextTarget, progress: program.hold.holdMs / HOLD_TARGET_MS } : undefined,
     pairTip: mode === "opposition" ? currentPair(program.session) : undefined,
-    scene: mode === "opposition" ? undefined : {
+    ring: mode === 'ring' ? { tip: program.session.ring!.tip, marks: program.session.attempts?.active?.metrics.kind === 'ring' ? program.session.attempts.active.metrics.marks : 0 } : undefined,
+    scene: program.session.mode !== 'guided' ? undefined : {
       exercise: mode, completed: program.session.exercises[mode]!.reps, timestampMs, reducedMotion,
       pinchPoint: g ? mirroredPinchPoint(g.pts, width) : null,
       palm: g ? mirrorPoint(g.palmCenter(), width) : null,
@@ -359,6 +377,10 @@ start.addEventListener("click", async () => {
     const allowed = pairChoices.filter(choice => choice.input.checked).map(choice => choice.tip);
     if (!allowed.length) { setHint('Выбери хотя бы одну пару пальцев', true); return; }
     program = createProgram(createOppositionSession(allowed));
+  }
+  if (!sessionStarted && trainingChoice.value === 'ring') {
+    const tip = Number(ringTipChoice.value) as RingTip;
+    program = createProgram(createRingSession(RING_TIPS.includes(tip) ? tip : 8));
   }
   program = beginProgram(program);
   mode = program.session.currentExercise;
@@ -495,8 +517,13 @@ function afterPairAction(): void {
   else setHint(programInstruction(program, performance.now()));
 }
 finishAttemptButton.addEventListener('click', () => {
-  program = finishOppositionAttempt(program, new Date().toISOString()); afterPairAction();
+  program = (mode === 'ring' ? finishRingAttempt : finishOppositionAttempt)(program, new Date().toISOString()); afterPairAction();
 });
 skipPairButton.addEventListener('click', () => {
   program = skipOppositionPair(program, new Date().toISOString()); afterPairAction();
+});
+
+window.addEventListener('resize', () => {
+  if (program.session.mode !== 'ring' || program.session.status !== 'in_progress' || program.phase === 'paused') return;
+  program = beginProgram(program, 'resize'); resetFrameClock(); persist(performance.now(), true); updateScore();
 });

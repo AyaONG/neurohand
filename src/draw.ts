@@ -1,3 +1,4 @@
+import { screenPoint, ringLayout, ringPoint, markAngle, RING_RULES, type RingTip } from './ring';
 import type { FingerTip } from './opposition';
 import { HandLandmarker } from "@mediapipe/tasks-vision";
 import type { Landmark, Point, Reading } from "./types";
@@ -14,6 +15,7 @@ export type DebugOptions = {
   target?: Point & { r: number; progress: number };
   scene?: SceneInput;
   pairTip?: FingerTip;
+  ring?: { tip: RingTip; marks: number };
 };
 
 export function mirrorPoint(point: Point, width: number): Point {
@@ -141,7 +143,7 @@ export function drawHandOverlay(
     }
     if (landmarks?.length === 21) {
       const handColor = config.success && !reading?.error ? "#22c55e" : "#38bdf8";
-      const pts = landmarks.map(p => mirrorPoint({ x: p.x * width, y: p.y * height }, width));
+      const pts = landmarks.map(p => screenPoint(p, width, height));
       const bones = new Path2D();
       for (const { start, end } of HandLandmarker.HAND_CONNECTIONS) {
         bones.moveTo(pts[start].x, pts[start].y);
@@ -171,6 +173,29 @@ export function drawHandOverlay(
       if (scene.flying) spark(ctx, scene.flying, scene.unit * 0.025, true);
       if (scene.pointer) circle(ctx, scene.pointer, scene.unit * 0.022,
         config.scene.openPalm ? "#fbbf24" : "rgba(148,163,184,.5)", "#fff");
+    }
+    if (config.ring) {
+      const r = ringLayout(width, height), unit = Math.min(width, height);
+      ctx.lineWidth = 2;
+      for (const radius of [r.r * (1 - RING_RULES.corridorRatio), r.r * (1 + RING_RULES.corridorRatio)]) {
+        const path = new Path2D(); path.arc(r.x, r.y, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = '#7dd3fc'; ctx.stroke(path);
+      }
+      if (config.ring.marks > 0) {
+        const completed = new Path2D();
+        completed.arc(r.x, r.y, r.r, -Math.PI / 2, markAngle(config.ring.marks - 1) - Math.PI / 2);
+        ctx.lineWidth = unit * 0.014; ctx.strokeStyle = '#22c55e'; ctx.stroke(completed); ctx.lineWidth = 2;
+      }
+      ctx.font = `${Math.max(12, unit * 0.026)}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (let i = 0; i < 12; i++) {
+        const p = ringPoint(r, markAngle(i));
+        circle(ctx, p, unit * 0.023, i < config.ring.marks ? '#15803d' : i === config.ring.marks ? '#a16207' : '#0f172a', '#fff');
+        ctx.fillStyle = '#fff'; ctx.fillText(String(i + 1), p.x, p.y);
+      }
+      const start = ringPoint(r, 0);
+      circle(ctx, start, unit * 0.018, '#fcd34d');
+      ctx.fillStyle = '#fef3c7'; ctx.fillText('СТАРТ →', start.x, start.y - unit * 0.04);
+      if (landmarks?.length === 21) circle(ctx, screenPoint(landmarks[config.ring.tip], width, height), unit * 0.016, '#f472b6', '#fff');
     }
     if (config.enabled) {
       const lines = [

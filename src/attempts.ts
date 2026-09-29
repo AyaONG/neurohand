@@ -1,21 +1,23 @@
+import type { RingSettings } from './ring';
 import type { FingerTip } from './opposition';
 import type { ExerciseId } from './types';
 
 export type AttemptOutcome = 'completed' | 'partial' | 'incomplete' | 'unscorable' | 'cancelled';
-export type AttemptEndReason = 'confirmed' | 'returned' | 'manual' | 'pause' | 'results' | 'visibility' | 'tracking' | 'camera' | 'reload' | 'resize' | 'timeout' | 'skip';
+export type AttemptEndReason = 'confirmed' | 'returned' | 'manual' | 'pause' | 'results' | 'visibility' | 'tracking' | 'camera' | 'reload' | 'resize' | 'timeout' | 'skip' | 'off_path' | 'jump';
 export const ATTEMPT_RULES = Object.freeze({
   version: 'basic-attempts-v1', intentRatio: 0.1, partialRatio: 0.2,
   stableMs: 100, minRange: 0.1, maxGapMs: 250, maxActiveMs: 10000,
   holdMovementRatio: 0.15,
 });
 export type AttemptMetrics =
+  | { kind: 'ring'; marks: number; returned: boolean; pathLength: number; progress: number }
   | { kind: 'skipped'; progress: 0 }
   | { kind: 'closure'; startDistance: number; successDistance: number; bestDistance: number; progress: number }
   | { kind: 'hold'; bestHoldMs: number; targetMs: number; progress: number };
 export type Attempt = {
   attemptId: string; exerciseId: ExerciseId; protocolVersion: string; recognizerVersion: string;
   hand: 'left' | 'right' | 'unspecified'; rulesVersion: string;
-  settings: { target: number; holdTargetMs: number; targetRadiusRatio: number; maxActiveMs: number; pairTip?: FingerTip; sequenceIndex?: number; partialRatio?: number };
+  settings: { target: number; holdTargetMs: number; targetRadiusRatio: number; maxActiveMs: number; pairTip?: FingerTip; sequenceIndex?: number; partialRatio?: number; ring?: RingSettings };
   startedAt: string; lastObservedAt: string; endedAt: string | null;
   outcome: AttemptOutcome | null; endReason: AttemptEndReason | null;
   activeMs: number; validTrackingMs: number;
@@ -40,6 +42,7 @@ export function observeAttempt(log: AttemptLog, attemptId: string, dtMs: number,
 }
 
 export function observedOutcome(a: Attempt): AttemptOutcome {
+  if (a.metrics.kind === 'ring' && a.metrics.marks > 0) return 'partial';
   if (a.metrics.progress >= (a.exerciseId === 'opposition' ? a.settings.partialRatio! : ATTEMPT_RULES.partialRatio)) return 'partial';
   return a.validTrackingMs >= ATTEMPT_RULES.stableMs ? 'incomplete' : 'cancelled';
 }
@@ -55,7 +58,7 @@ export function finishAttempt(log: AttemptLog, attemptId: string, outcome: Attem
 
 export function closeActive(log: AttemptLog | null, reason: AttemptEndReason, wallTime?: string): AttemptLog | null {
   if (!log?.active) return log;
-  const unscorable = ['tracking', 'camera', 'reload', 'visibility', 'resize'].includes(reason);
+  const unscorable = ['tracking', 'camera', 'reload', 'visibility', 'resize', 'jump'].includes(reason);
   return finishAttempt(log, log.active.attemptId, unscorable ? 'unscorable' : observedOutcome(log.active), reason, wallTime ?? log.active.lastObservedAt);
 }
 

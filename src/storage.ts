@@ -1,3 +1,4 @@
+import { parseRingSettings, settleRing, finishesRing } from './ring';
 import { parseOppositionPlan, consumesPair, PAIR_RULES, PAIR_THRESHOLDS } from './opposition';
 import { closeActive } from './attempts';
 import { parseAttemptLog } from './attempt-storage';
@@ -19,9 +20,9 @@ const date = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d\d-
 /** Validate and project onto an explicit allowlist: never persist frame data or extra fields. */
 export function parseSession(v: unknown): Session | null {
   if (!object(v) || ![2, 3].includes(v.schemaVersion) || typeof v.id !== 'string' || !v.id || !date(v.startedAt) ||
-      !['in_progress', 'completed', 'stopped'].includes(v.status) || !((v.mode === 'guided' && v.protocolId === 'guided-v1') || (v.schemaVersion === 3 && v.mode === 'opposition' && v.protocolId === 'opposition-v1')) ||
+      !['in_progress', 'completed', 'stopped'].includes(v.status) || !((v.mode === 'guided' && v.protocolId === 'guided-v1') || (v.schemaVersion === 3 && ((v.mode === 'opposition' && v.protocolId === 'opposition-v1') || (v.mode === 'ring' && v.protocolId === 'ring-v1')))) ||
       typeof v.recognitionVersion !== 'string' || !v.recognitionVersion || !['left', 'right', 'unspecified'].includes(v.hand) ||
-      !(v.mode === 'opposition' ? v.currentExercise === 'opposition' : ids.includes(v.currentExercise)) || typeof v.paused !== 'boolean' || !object(v.settings) || !object(v.exercises)) return null;
+      !(v.mode !== 'guided' ? v.currentExercise === v.mode : ids.includes(v.currentExercise)) || typeof v.paused !== 'boolean' || !object(v.settings) || !object(v.exercises)) return null;
   if (v.status === 'in_progress' ? v.endedAt !== null : !date(v.endedAt) || Date.parse(v.endedAt) < Date.parse(v.startedAt)) return null;
   const attempts = v.schemaVersion === 2 ? null : parseAttemptLog(v.attempts);
   if (attempts === undefined || (attempts?.active && (v.status !== 'in_progress' || attempts.active.exerciseId !== v.currentExercise))) return null;
@@ -40,7 +41,18 @@ export function parseSession(v: unknown): Session | null {
       promptEpisodes: Object.fromEntries(Object.entries(r.promptEpisodes)), bestHoldMs: r.bestHoldMs };
   }
   const opposition = v.mode === 'opposition' ? parseOppositionPlan(v.opposition) : null;
-  if (v.mode === 'opposition') {
+  const ring = v.mode === 'ring' ? parseRingSettings(v.ring) : null;
+  if (v.mode === 'ring') {
+    if (!ring || !attempts?.historyComplete || v.recognitionVersion !== 'ring-screen-v1') return null;
+    const records = [...attempts.records, ...(attempts.active ? [attempts.active] : [])];
+    if (records.some(a => a.exerciseId !== 'ring' || JSON.stringify(a.settings.ring) !== JSON.stringify(ring) || a.hand !== v.hand || a.protocolVersion !== v.protocolId || a.recognizerVersion !== v.recognitionVersion)) return null;
+    const terminals = attempts.records.filter(finishesRing);
+    if (terminals.length > 1 || (v.status === 'completed') !== (terminals.length === 1) ||
+        (terminals.length && (attempts.records.at(-1) !== terminals[0] || v.endedAt !== terminals[0].endedAt))) return null;
+    const projected = settleRing({ ...v, ring, attempts } as Session);
+    if (projected.status !== v.status || JSON.stringify(projected.exercises.ring) !== JSON.stringify(v.exercises.ring) || records.filter(a => a.outcome === 'completed').length > 1) return null;
+    exercises.ring = projected.exercises.ring!;
+  } else if (v.mode === 'opposition') {
     if (!opposition || !attempts || !attempts.historyComplete || v.recognitionVersion !== PAIR_RULES.recognizerVersion) return null;
     const records = [...attempts.records, ...(attempts.active ? [attempts.active] : [])];
     const used = new Set<number>();
@@ -64,8 +76,8 @@ export function parseSession(v: unknown): Session | null {
         r.bestHoldMs !== null || !object(r.promptEpisodes) || !Object.values(r.promptEpisodes).every(count)) return null;
     exercises.opposition = { reps: r.reps, target: r.target, started: r.started, activeMs: r.activeMs,
       promptEpisodes: { ...r.promptEpisodes }, bestHoldMs: null };
-  } else if (attempts && [...attempts.records, ...(attempts.active ? [attempts.active] : [])].some(a => a.exerciseId === 'opposition')) return null;
-  return { schemaVersion: 3, attempts, ...(opposition ? { opposition } : {}), id: v.id, startedAt: v.startedAt, endedAt: v.endedAt, status: v.status,
+  } else if (attempts && [...attempts.records, ...(attempts.active ? [attempts.active] : [])].some(a => a.exerciseId === 'opposition' || a.exerciseId === 'ring')) return null;
+  return { schemaVersion: 3, attempts, ...(ring ? { ring } : {}), ...(opposition ? { opposition } : {}), id: v.id, startedAt: v.startedAt, endedAt: v.endedAt, status: v.status,
     mode: v.mode, protocolId: v.protocolId, recognitionVersion: v.recognitionVersion, hand: v.hand,
     settings: { pinchTarget: s.pinchTarget, gripTarget: s.gripTarget, holdTargetCount: s.holdTargetCount,
       holdTargetMs: s.holdTargetMs, targetRadiusRatio: s.targetRadiusRatio },
@@ -86,7 +98,7 @@ export function parseLegacy(v: unknown): LegacyRecord | null {
 
 export function comparable(a: Session, b: Session): boolean {
   return a.status === 'completed' && b.status === 'completed' && a.hand !== 'unspecified' && a.hand === b.hand &&
-    a.mode === b.mode && (a.mode !== 'opposition' || (a.opposition?.rulesVersion === b.opposition?.rulesVersion && JSON.stringify(a.opposition?.sequence) === JSON.stringify(b.opposition?.sequence))) && a.protocolId === b.protocolId && a.recognitionVersion === b.recognitionVersion &&
+    a.mode === b.mode && (a.mode !== 'ring' || JSON.stringify(a.ring) === JSON.stringify(b.ring)) && (a.mode !== 'opposition' || (a.opposition?.rulesVersion === b.opposition?.rulesVersion && JSON.stringify(a.opposition?.sequence) === JSON.stringify(b.opposition?.sequence))) && a.protocolId === b.protocolId && a.recognitionVersion === b.recognitionVersion &&
     (Object.keys(a.settings) as (keyof Session['settings'])[]).every(key => a.settings[key] === b.settings[key]);
 }
 
@@ -150,6 +162,7 @@ export class ProgressStore {
     const clean = parseSession(session);
     if (!clean) return;
     const event = JSON.stringify([clean.id, clean.status, clean.paused, clean.currentExercise, clean.hand, clean.opposition?.cursor, clean.opposition?.awaitingRelease,
+      clean.attempts?.active?.metrics.kind === 'ring' ? clean.attempts.active.metrics.marks : null,
       clean.attempts?.active?.attemptId, clean.attempts?.records.length, clean.attempts?.active?.interruptions.count,
       ids.map(id => [clean.exercises[id].reps, clean.exercises[id].started, clean.exercises[id].promptEpisodes])]);
     if (!force && event === this.lastEvent && timestampMs - this.lastSaveMs < 2000) return;

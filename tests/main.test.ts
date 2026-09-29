@@ -58,7 +58,7 @@ function memoryStorage() {
     setItem: vi.fn((key: string, value: string) => { values.set(key, value); }) };
 }
 async function setup(search = "", storage = memoryStorage()) {
-  elements = Object.fromEntries(["video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
+  elements = Object.fromEntries(["video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "ring-options", "ring-tip", "btn-choose-ring", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
     .map(id => [id, Object.assign(new Element(), { id })]));
   elements.results.hidden = true;
   modes = Object.fromEntries(["pinch", "grip", "hold"].map(mode => [mode, Object.assign(new Element(), { dataset: { mode } })]));
@@ -441,4 +441,46 @@ it('requires at least one pair before opening the camera and allows explicit ski
   await elements['btn-skip-pair'].fire('click');
   expect(elements.results.children[2].children[0].textContent).toContain('2 пропущено');
   expect(JSON.parse(memory.getItem('neurohand:progress:v3')!).history[0].attempts.records.every((a: { outcome: string }) => a.outcome === 'cancelled')).toBe(true);
+});
+
+function ringPose(angle: number, tip = 8) {
+  const lm = fixture('grip_open');
+  lm[tip] = { x: 1 - (320 + 144 * Math.sin(angle)) / 640, y: (240 - 144 * Math.cos(angle)) / 480, z: 0 };
+  return lm;
+}
+it.each([8, 20])('wires selected ring tip %i, partial completion and history through real handlers', async tip => {
+  const memory = memoryStorage(); await setup('', memory);
+  await elements['btn-choose-ring'].fire('click');
+  expect(elements['ring-options'].hidden).toBe(false); expect(elements['pair-options'].hidden).toBe(true);
+  Object.assign(elements['ring-tip'], { value: String(tip) });
+  await elements['btn-start'].fire('click');
+  for (let i = 0; i < 20; i++) frame(ringPose(0, tip));
+  expect(elements['btn-finish-attempt'].disabled).toBe(true);
+  for (let x = 0.025; x <= 4.05; x += 0.025) frame(ringPose(x, tip));
+  expect(mocks.draw.mock.lastCall![3].ring).toEqual({ tip, marks: 8 });
+  expect(elements.score.textContent).toContain('8 / 12');
+  expect(elements['btn-skip-pair'].hidden).toBe(true);
+  await elements['btn-finish-attempt'].fire('click');
+  expect(elements.results.children[2].children[0].textContent).toContain('8 / 12');
+  const s = JSON.parse(memory.getItem('neurohand:progress:v3')!).history[0];
+  expect(s.mode).toBe('ring'); expect(s.ring.tip).toBe(tip);
+  expect(s.attempts.records[0]).toMatchObject({ outcome: 'partial', metrics: { marks: 8, returned: false } });
+  expect(s.exercises.ring.reps).toBe(0); expect(nextFrame).toBeNull();
+  await elements['btn-history'].fire('click');
+  const text = (node: Element): string => node.textContent + node.children.map(text).join(' ');
+  expect(text(elements.history)).toContain('Обведи кольцо: 8 / 12');
+});
+it('a window resize finalizes a ring segment and cannot resume a paused camera attempt', async () => {
+  const memory = memoryStorage(); await setup('', memory);
+  await elements['btn-choose-ring'].fire('click'); await elements['btn-start'].fire('click');
+  for (let i = 0; i < 20; i++) frame(ringPose(0));
+  for (let x = 0.025; x <= 2; x += 0.025) frame(ringPose(x));
+  await (window as unknown as Element).fire('resize');
+  let s = JSON.parse(memory.getItem('neurohand:progress:v3')!).current;
+  expect(s.attempts.records[0]).toMatchObject({ outcome: 'unscorable', endReason: 'resize' });
+  expect(s.attempts.active).toBeNull();
+  await elements['btn-pause'].fire('click');
+  await (window as unknown as Element).fire('resize');
+  s = JSON.parse(memory.getItem('neurohand:progress:v3')!).current;
+  expect(s.paused).toBe(true); expect(s.attempts.records).toHaveLength(1);
 });

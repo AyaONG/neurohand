@@ -1,6 +1,7 @@
 import type { ExerciseId, Point } from "./types";
 
 export const SCENES: Record<ExerciseId, { title: string; instruction: string }> = {
+  ring: { title: 'Обведи кольцо', instruction: 'Экранный путь кончика: отметки 1–12 и возврат к старту' },
   opposition: { title: 'Найди пару', instruction: 'Соедини большой и выбранный палец. Разведи их перед следующей парой.' },
   pinch: { title: "Собери 5 огоньков", instruction: "Соедини большой и указательный пальцы. Разведи их перед следующим захватом." },
   grip: { title: "Сожми мягкий мяч", instruction: "Раскрой кисть, затем сожми пальцы — мяч станет меньше." },
