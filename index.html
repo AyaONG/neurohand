@@ -19,11 +19,15 @@
   <main>
     <p id="program-status">5 пинцетов → 5 сжатий → 3 цели по 2 секунды</p>
     <section id="stage">
-      <video id="video" playsinline muted></video>
-      <canvas id="canvas"></canvas>
+      <h2 id="task-title">Собери 5 огоньков</h2>
+      <p id="task-description">Соедини большой и указательный пальцы. Разведи их перед следующим захватом.</p>
+      <div id="viewport">
+        <video id="video" playsinline muted></video>
+        <canvas id="canvas" aria-hidden="true"></canvas>
+        <pre id="debug" hidden></pre>
+      </div>
       <div id="score"></div>
       <div id="hint" role="status" aria-live="polite" aria-atomic="true"></div>
-      <pre id="debug" hidden></pre>
     </section>
     <section id="panel">
       <label>Рука <select id="hand-choice"><option value="unspecified">Не выбрана</option><option value="left">Левая</option><option value="right">Правая</option></select></label>

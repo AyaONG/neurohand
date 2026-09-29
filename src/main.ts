@@ -5,6 +5,7 @@ import { gripOpenness, stepPinchTracking, type PinchTrackingState } from "./vali
 import { HOLD_TARGET_MS } from "./fsm";
 import { beginProgram, createProgram, EXERCISES, guidedTarget, pauseProgram, programInstruction, stepProgram, stopProgram } from "./program";
 import { drawHandOverlay, mirrorPoint } from "./draw";
+import { SCENES, mirroredPinchPoint, type SparkFlight } from "./scenes";
 import { dumpCapture, updateDebug, type Capture } from "./debug";
 import type { Session } from "./session";
 import { getFeedback } from "./feedback";
@@ -15,6 +16,9 @@ const video = document.querySelector<HTMLVideoElement>("#video")!;
 const canvas = document.querySelector<HTMLCanvasElement>("#canvas")!;
 const ctx = canvas.getContext("2d")!;
 const stage = document.querySelector<HTMLElement>("#stage")!;
+const viewport = document.querySelector<HTMLElement>("#viewport")!;
+const taskTitle = document.querySelector<HTMLElement>("#task-title")!;
+const taskDescription = document.querySelector<HTMLElement>("#task-description")!;
 const hint = document.querySelector<HTMLElement>("#hint")!;
 const score = document.querySelector<HTMLElement>("#score")!;
 const debug = document.querySelector<HTMLElement>("#debug")!;
@@ -46,6 +50,10 @@ let fps = 0;
 let debugEnabled = new URLSearchParams(location.search).get("debug") === "1";
 let tracking: PinchTrackingState = { previousWrongJoint: null, lastValidTimestamp: null };
 let capture: Capture | null = null;
+let sparkFlight: SparkFlight | null = null;
+const motionPreference = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+let reducedMotion = motionPreference?.matches ?? false;
+motionPreference?.addEventListener("change", event => { reducedMotion = event.matches; });
 
 function setHint(message: string, error = false, celebrating = false): void {
   // aria-live should announce changed states, not each camera frame.
@@ -57,12 +65,15 @@ function setHint(message: string, error = false, celebrating = false): void {
 function updateScore(): void {
   const text = `${labels[mode]}: ${program.session.exercises[mode].reps} / ${program.session.exercises[mode].target}`;
   if (score.textContent !== text) score.textContent = text;
+  if (taskTitle.textContent !== SCENES[mode].title) taskTitle.textContent = SCENES[mode].title;
+  if (taskDescription.textContent !== SCENES[mode].instruction) taskDescription.textContent = SCENES[mode].instruction;
 }
 
 function resetTracking(): void {
   tracking = { previousWrongJoint: null, lastValidTimestamp: null };
   capture = null;
   dump.disabled = true;
+  sparkFlight = null;
 }
 
 function resetFrameClock(): void {
@@ -166,7 +177,7 @@ function processFrame(timestampMs: number): void {
   if (canvas.width !== width || canvas.height !== height) {
     canvas.width = width;
     canvas.height = height;
-    if (width > 0 && height > 0) stage.style.aspectRatio = `${width} / ${height}`;
+    if (width > 0 && height > 0) viewport.style.aspectRatio = `${width} / ${height}`;
     // A changed scene invalidates partial holds and requires readiness again.
     if (program.phase === "exercise") program = beginProgram(program);
     resetFrameClock();
@@ -186,10 +197,15 @@ function processFrame(timestampMs: number): void {
   const tracked = stepPinchTracking(tracking, g, timestampMs);
   tracking = tracked.state;
   const target = width > 0 && height > 0 ? guidedTarget(width, height, program.session.exercises.hold.reps) : null;
+  const previousSuccess = program.success;
   program = stepProgram(program, {
     timestampMs, wallTime: new Date().toISOString(), geometry: g, fullHand,
     pinch: tracked.reading, palm: g ? mirrorPoint(g.palmCenter(), width) : null, target,
   });
+  if (g && program.success && program.success !== previousSuccess && program.success.exercise === "pinch") {
+    sparkFlight = { at: program.success.at, action: program.success.reps,
+      from: mirroredPinchPoint(g.pts, width) };
+  }
   mode = program.session.currentExercise;
   if (program.phase === "summary") {
     rememberFinal();
@@ -198,6 +214,7 @@ function processFrame(timestampMs: number): void {
     return;
   }
   const reading = program.reading;
+  if (!g || reading?.error) sparkFlight = null;
   const instruction = programInstruction(program, timestampMs);
   const feedback = getFeedback({
     exercise: mode, timestampMs, visible: !!g, error: reading?.error ?? null,
@@ -218,6 +235,15 @@ function processFrame(timestampMs: number): void {
     nullTimeoutMs: DEFAULT_CONFIG.NULL_TIMEOUT_MS, missingMs,
     gripOpenness: mode === "grip" && g && program.calibration ? gripOpenness(g, program.calibration) : undefined,
     target: mode === "hold" && nextTarget ? { ...nextTarget, progress: program.hold.holdMs / HOLD_TARGET_MS } : undefined,
+    scene: {
+      exercise: mode, completed: program.session.exercises[mode].reps, timestampMs, reducedMotion,
+      pinchPoint: g ? mirroredPinchPoint(g.pts, width) : null,
+      palm: g ? mirrorPoint(g.palmCenter(), width) : null,
+      openPalm: !!reading?.open,
+      openness: g && program.calibration ? gripOpenness(g, program.calibration) : null,
+      targets: [0, 1, 2].map(index => guidedTarget(width, height, index)),
+      holdProgress: program.hold.holdMs / HOLD_TARGET_MS, flight: sparkFlight,
+    },
   });
   updateDebug(debug, g, fps, {
     program: program.phase, phase: program.fsm.phase, error: reading?.error?.code ?? null,

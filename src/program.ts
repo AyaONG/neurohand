@@ -17,7 +17,7 @@ export type Program = {
   pauseReason: PauseReason | null; fsm: TimedFsm; hold: HoldState;
   samples: HandGeometry[]; sampleSince: number | null; readySince: number | null;
   transitionSince: number | null; lastTimestamp: number | null; lastValidTimestamp: number | null;
-  missingSince: number | null; wasActive: boolean; holdEligible: boolean;
+  missingSince: number | null; wasActive: boolean; holdEligible: boolean; holdInterrupted: boolean;
   prompt: PromptState; reading: Reading | null; success: SuccessFeedback | null;
 };
 export type ProgramFrame = {
@@ -31,7 +31,7 @@ export function createProgram(session = createSession()): Program {
     fsm: initialTimedFsm(), hold: { holdMs: 0, reps: session.exercises.hold.reps },
     samples: [], sampleSince: null, readySince: null, transitionSince: null,
     lastTimestamp: null, lastValidTimestamp: null, missingSince: null, wasActive: false,
-    holdEligible: false, prompt: emptyPrompt(), reading: null, success: null,
+    holdEligible: false, holdInterrupted: false, prompt: emptyPrompt(), reading: null, success: null,
   };
 }
 
@@ -39,7 +39,7 @@ function clearTransient(p: Program): Program {
   return { ...p, fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise].reps),
     hold: { holdMs: 0, reps: p.session.exercises.hold.reps }, samples: [], sampleSince: null,
     readySince: null, lastTimestamp: null, lastValidTimestamp: null, missingSince: null,
-    wasActive: false, holdEligible: false, prompt: emptyPrompt(), reading: null, success: null };
+    wasActive: false, holdEligible: false, holdInterrupted: false, prompt: emptyPrompt(), reading: null, success: null };
 }
 
 export function beginProgram(p: Program): Program {
@@ -92,6 +92,7 @@ export function stepProgram(previous: Program, frame: ProgramFrame): Program {
   if (!g || !contiguous) {
     p = { ...p, fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise].reps),
       hold: { ...p.hold, holdMs: 0 }, holdEligible: false, wasActive: false,
+      holdInterrupted: p.holdInterrupted || p.hold.holdMs > 0,
       samples: [], sampleSince: null, readySince: null, success: null,
       prompt: { ...p.prompt, candidate: null, since: null, clearSince: null } };
   }
@@ -136,7 +137,8 @@ export function stepProgram(previous: Program, frame: ProgramFrame): Program {
     const hold = frame.target ? stepHold(p.hold, eligible ? frame.palm : null, frame.target, p.holdEligible && eligible ? dt : 0) : { ...p.hold, holdMs: 0 };
     bestHold = hold.reps > p.hold.reps ? session.settings.holdTargetMs : hold.holdMs;
     action = hold.reps;
-    p = { ...p, hold, holdEligible: eligible && hold.reps === p.hold.reps };
+    const holdInterrupted = hold.reps > p.hold.reps || hold.holdMs > 0 ? false : p.holdInterrupted || p.hold.holdMs > 0;
+    p = { ...p, hold, holdInterrupted, holdEligible: eligible && hold.reps === p.hold.reps };
   } else {
     const fsm = stepTimed(p.fsm, p.reading, now);
     action = fsm.reps;
@@ -169,5 +171,6 @@ export function programInstruction(p: Program, now: number): string {
   if (p.session.currentExercise === "pinch") return "Соедини большой и указательный пальцы";
   if (p.session.currentExercise === "grip") return "Раскрой кисть, затем сожми пальцы";
   if (p.reading && !p.reading.open) return "Раскрой ладонь, чтобы удерживать цель";
-  return p.hold.holdMs > 0 ? `Удерживай · ${(p.hold.holdMs / 1000).toFixed(1)} / 2,0 с` : "Перемести открытую ладонь в круг";
+  return p.hold.holdMs > 0 ? `Удерживай · ${(p.hold.holdMs / 1000).toFixed(1)} / 2,0 с`
+    : p.holdInterrupted ? "Верни ладонь в круг и начни удержание заново" : "Перемести открытую ладонь в круг";
 }

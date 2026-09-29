@@ -52,7 +52,7 @@ let nextFrame: FrameRequestCallback | null;
 let time: number;
 
 async function setup(search = "") {
-  elements = Object.fromEntries(["video", "canvas", "stage", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status"]
+  elements = Object.fromEntries(["video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status"]
     .map(id => [id, Object.assign(new Element(), { id })]));
   elements.results.hidden = true;
   modes = Object.fromEntries(["pinch", "grip", "hold"].map(mode => [mode, Object.assign(new Element(), { dataset: { mode } })]));
@@ -115,6 +115,12 @@ describe("app wiring with simulated camera frames", () => {
       expect(elements.score.textContent).toBe(`Пинцет: ${rep} / 5`);
       expect(elements.hint.textContent).toBe(`✓ Захват засчитан · ${rep} из 5`);
       expect(mocks.draw.mock.lastCall?.[3].success).toBe(true);
+      const scene = mocks.draw.mock.lastCall![3].scene;
+      expect(scene.completed).toBe(rep);
+      expect(scene.flight.action).toBe(rep);
+      const at = scene.flight.at;
+      frame(fixture("pinch_closed"));
+      expect(mocks.draw.mock.lastCall![3].scene.flight.at).toBe(at);
     }
     for (let i = 0; i < 160; i++) frame(fixture("pinch_closed"));
     expect(elements.score.textContent).toBe("Пинцет: 3 / 5");
@@ -182,6 +188,12 @@ describe("app wiring with simulated camera frames", () => {
         y: p.y + (target.y - 228) / 480, z: p.z,
       }));
       for (let i = 0; i < 65; i++) frame(lm);
+      if (goal < 2) {
+        for (let i = 0; i < 160; i++) frame(lm); // Stay at the completed target for >5 seconds.
+        expect(elements.score.textContent).toBe(`Перенос: ${goal + 1} / 3`);
+        expect(mocks.draw.mock.lastCall![3].scene.holdProgress).toBe(0);
+        expect(mocks.draw.mock.lastCall![3].target.x).not.toBe(target.x);
+      }
     }
     expect(elements.results.hidden).toBe(false);
     expect(elements.results.children[0].textContent).toBe("Тренировка завершена");
