@@ -9,37 +9,51 @@
 <body>
   <header>
     <h1>NeuroHand</h1>
-    <nav id="tabs">
-      <button data-mode="pinch" class="active">Пинцет</button>
-      <button data-mode="grip">Эспандер</button>
-      <button data-mode="hold">Перенос</button>
-      <button id="btn-history" aria-controls="history">Мой прогресс</button>
+    <nav aria-label="Разделы">
+      <button id="btn-history" aria-controls="history" aria-expanded="false">Мой прогресс</button>
       <button id="btn-results" aria-controls="results" aria-expanded="false">Итоги</button>
     </nav>
   </header>
   <main>
     <p id="storage-notice" role="status" aria-live="polite"></p>
-    <p id="program-status">5 пинцетов → 5 сжатий → 3 цели по 2 секунды</p>
-    <section id="stage">
-      <h2 id="task-title">Собери 5 огоньков</h2>
+    <section id="home" aria-labelledby="home-title">
+      <p class="eyebrow">Движение · внимание · прогресс</p>
+      <h2 id="home-title">Три движения.<br>Одна тренировка.</h2>
+      <p class="lead">Управляй светом и мячом движениями руки перед камерой. Выполни задания и посмотри свой результат.</p>
+      <div class="exercise-previews">
+        <article><svg viewBox="0 0 180 90" aria-hidden="true"><path d="M35 72V42a10 10 0 0 1 20 0v15M125 72V42a10 10 0 0 1 20 0v15"/><circle class="pinch-demo" cx="65" cy="35" r="10"/><circle cx="110" cy="35" r="10"/><path class="spark-demo" d="m88 18 4 9 9 4-9 4-4 9-4-9-9-4 9-4Z"/></svg><p class="eyebrow">01 · 5 захватов</p><h3>Собери огоньки</h3><p>Соедини большой и указательный пальцы, затем разведи их.</p></article>
+        <article><svg viewBox="0 0 180 90" aria-hidden="true"><circle class="grip-demo" cx="90" cy="45" r="30"/><path d="m25 35 12 10-12 10m130-20-12 10 12 10"/></svg><p class="eyebrow">02 · 5 сжатий</p><h3>Сожми мягкий мяч</h3><p>Раскрой ладонь, сожми кисть, затем снова раскрой её.</p></article>
+        <article><svg viewBox="0 0 180 90" aria-hidden="true"><circle cx="132" cy="45" r="27" stroke-dasharray="5 5"/><path d="M30 45h64m-9-8 9 8-9 8"/><circle class="hold-demo" cx="40" cy="45" r="10"/></svg><p class="eyebrow">03 · 3 цели по 2 секунды</p><h3>Проведи свет в цель</h3><p>Перемести открытую ладонь в круг и удерживай на месте.</p></article>
+      </div>
+      <p class="setup-note">Сядь удобно, направь камеру на руку и двигайся в комфортном диапазоне. Сначала подготовим открытую ладонь.</p>
+    </section>
+    <ol id="tabs" class="steps" aria-label="Порядок заданий" hidden>
+      <li data-mode="pinch">1. Огоньки · Далее</li><li data-mode="grip">2. Мяч · Далее</li><li data-mode="hold">3. Цели · Далее</li>
+    </ol>
+    <p id="program-status" hidden>Подготовка к тренировке</p>
+    <section id="stage" hidden>
+      <h2 id="task-title" tabindex="-1">Собери 5 огоньков</h2>
       <p id="task-description">Соедини большой и указательный пальцы. Разведи их перед следующим захватом.</p>
+      <div id="score"></div>
       <div id="viewport">
+        <p id="camera-placeholder">Здесь появится изображение камеры</p>
         <video id="video" playsinline muted></video>
         <canvas id="canvas" aria-hidden="true"></canvas>
         <pre id="debug" hidden></pre>
       </div>
-      <div id="score"></div>
-      <div id="hint" role="status" aria-live="polite" aria-atomic="true"></div>
     </section>
+    <div id="hint"></div>
+    <div id="announcements" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
     <section id="panel">
-      <label>Рука <select id="hand-choice"><option value="unspecified">Не выбрана</option><option value="left">Левая</option><option value="right">Правая</option></select></label>
+      <label id="hand-label">Рука для тренировки <select id="hand-choice"><option value="unspecified">Не выбрана</option><option value="left">Левая</option><option value="right">Правая</option></select></label>
       <button id="btn-start">Начать тренировку</button>
-      <button id="btn-pause" disabled>Пауза</button>
+      <button id="btn-pause" aria-pressed="false" disabled>Пауза</button>
       <button id="btn-calibrate" disabled hidden>Калибровка</button>
       <button id="btn-dump" hidden>Dump</button>
     </section>
     <section id="results" aria-label="Текущие итоги тренировки" hidden></section>
     <section id="history" aria-label="Мой прогресс" hidden></section>
+    <p class="app-note">Прототип тренажёра. Результаты описывают выполнение заданий. Видео не сохраняется в историю.</p>
   </main>
   <script type="module" src="/src/main.ts"></script>
 </body>

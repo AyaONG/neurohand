@@ -57,7 +57,7 @@ function memoryStorage() {
     setItem: vi.fn((key: string, value: string) => { values.set(key, value); }) };
 }
 async function setup(search = "", storage = memoryStorage()) {
-  elements = Object.fromEntries(["video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice"]
+  elements = Object.fromEntries(["video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label"]
     .map(id => [id, Object.assign(new Element(), { id })]));
   elements.results.hidden = true;
   modes = Object.fromEntries(["pinch", "grip", "hold"].map(mode => [mode, Object.assign(new Element(), { dataset: { mode } })]));
@@ -107,7 +107,8 @@ describe("app wiring with simulated camera frames", () => {
     ]);
     await elements.results.children.find(child => child.id === "btn-resume")!.fire("click");
     expect(elements.results.hidden).toBe(true);
-    expect(elements.stage.hidden).toBe(false);
+    expect(elements.home.hidden).toBe(false);
+    expect(elements.stage.hidden).toBe(true);
     expect(nextFrame).toBeNull();
   });
 
@@ -331,4 +332,42 @@ it("shows storage failure while keeping the training and its history usable in m
   await elements.results.children.find(child => child.id === "btn-finish")!.fire("click");
   await elements["btn-history"].fire("click");
   expect(elements.history.children.some(child => child.textContent === "Последняя тренировка")).toBe(true);
+});
+
+it("shows home, preparation and ordered steps, with a separate live-event message", async () => {
+  await setup();
+  expect(elements.home.hidden).toBe(false);
+  expect(elements.stage.hidden).toBe(true);
+  expect(elements["btn-pause"].hidden).toBe(true);
+  await elements["btn-start"].fire("click");
+  expect(elements.home.hidden).toBe(true);
+  expect(elements.stage.hidden).toBe(false);
+  for (let i = 0; i < 20; i++) frame(fixture("grip_open"));
+  expect(elements["task-title"].textContent).toBe("Подготовим ладонь");
+  expect(elements.announcements.textContent).toBe("Держи открытую ладонь для подготовки");
+  const announcement = elements.announcements.textContent;
+  frame(fixture("grip_open"));
+  expect(elements.announcements.textContent).toBe(announcement);
+  prepare();
+  expect(elements["program-status"].textContent).toBe("Шаг 1 из 3");
+  expect(modes.pinch.textContent).toContain("Сейчас");
+  expect(modes.grip.textContent).toContain("Далее");
+  for (let i = 0; i < 5; i++) pinch();
+  expect(modes.pinch.textContent).toContain("Готово");
+  await elements["btn-pause"].fire("click");
+  expect(elements["btn-pause"].attrs["aria-pressed"]).toBe("true");
+  await elements["btn-history"].fire("click");
+  expect(elements["btn-history"].attrs["aria-expanded"]).toBe("true");
+  expect(elements.hint.hidden).toBe(true);
+});
+
+it("explains denied camera access and leaves a visible retry action", async () => {
+  mocks.camera.mockRejectedValueOnce(Object.assign(new Error("denied"), { name: "NotAllowedError" }));
+  await setup();
+  await elements["btn-start"].fire("click");
+  expect(elements.hint.textContent).toContain("Доступ к камере запрещён");
+  expect(elements["btn-start"].hidden).toBe(false);
+  expect(elements["btn-start"].disabled).toBe(false);
+  expect(elements["btn-pause"].hidden).toBe(true);
+  expect(nextFrame).toBeNull();
 });

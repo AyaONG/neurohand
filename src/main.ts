@@ -9,6 +9,7 @@ import { SCENES, mirroredPinchPoint, type SparkFlight } from "./scenes";
 import { dumpCapture, updateDebug, type Capture } from "./debug";
 import { ProgressStore } from "./storage";
 import { renderHistory } from "./history";
+import { spokenHint } from "./presentation";
 import { getFeedback } from "./feedback";
 import { renderResults } from "./results";
 import type { ExerciseId } from "./types";
@@ -33,6 +34,10 @@ const resultsButton = document.querySelector<HTMLButtonElement>("#btn-results")!
 const pauseButton = document.querySelector<HTMLButtonElement>("#btn-pause")!;
 const handChoice = document.querySelector<HTMLSelectElement>("#hand-choice")!;
 const programStatus = document.querySelector<HTMLElement>("#program-status")!;
+const home = document.querySelector<HTMLElement>("#home")!;
+const announcements = document.querySelector<HTMLElement>("#announcements")!;
+const cameraPlaceholder = document.querySelector<HTMLElement>("#camera-placeholder")!;
+const handLabel = document.querySelector<HTMLElement>("#hand-label")!;
 const labels: Record<ExerciseId, string> = { pinch: "Пинцет", grip: "Эспандер", hold: "Перенос" };
 
 const historyPanel = document.querySelector<HTMLElement>("#history")!;
@@ -66,6 +71,10 @@ motionPreference?.addEventListener("change", event => { reducedMotion = event.ma
 function setHint(message: string, error = false, celebrating = false): void {
   // aria-live should announce changed states, not each camera frame.
   if (hint.textContent !== message) hint.textContent = message;
+  const spoken = spokenHint(message);
+  if (announcements.textContent !== spoken) announcements.textContent = spoken;
+  cameraPlaceholder.hidden = running && video.readyState >= 2 && video.videoWidth > 0;
+  if (error && !running) programStatus.textContent = "Запуск приостановлен";
   hint.classList.toggle("error", error);
   hint.classList.toggle("success", celebrating);
 }
@@ -73,8 +82,21 @@ function setHint(message: string, error = false, celebrating = false): void {
 function updateScore(): void {
   const text = `${labels[mode]}: ${program.session.exercises[mode].reps} / ${program.session.exercises[mode].target}`;
   if (score.textContent !== text) score.textContent = text;
-  if (taskTitle.textContent !== SCENES[mode].title) taskTitle.textContent = SCENES[mode].title;
+  const title = program.phase === "preparing" ? "Подготовим ладонь" : SCENES[mode].title;
+  if (taskTitle.textContent !== title) taskTitle.textContent = title;
   if (taskDescription.textContent !== SCENES[mode].instruction) taskDescription.textContent = SCENES[mode].instruction;
+  tabs.querySelectorAll<HTMLElement>("[data-mode]").forEach(tab => {
+    const id = tab.dataset.mode as ExerciseId;
+    const result = program.session.exercises[id];
+    const state = result.reps === result.target ? "Готово" : id === mode ? "Сейчас" : "Далее";
+    const text = `${EXERCISES.indexOf(id) + 1}. ${{ pinch: "Огоньки", grip: "Мяч", hold: "Цели" }[id]} · ${state}`;
+    if (tab.textContent !== text) tab.textContent = text;
+    tab.classList.toggle("active", id === mode);
+    tab.setAttribute("aria-current", id === mode ? "step" : "false");
+  });
+  const status = program.phase === "preparing" ? "Подготовка руки"
+    : program.phase === "paused" ? "Тренировка на паузе" : `Шаг ${EXERCISES.indexOf(mode) + 1} из 3`;
+  if (programStatus.textContent !== status) programStatus.textContent = status;
 }
 
 function resetTracking(): void {
@@ -93,8 +115,17 @@ function resetFrameClock(): void {
 function showExercise(): void {
   historyPanel.hidden = true;
   results.hidden = true;
-  stage.hidden = false;
+  home.hidden = sessionStarted;
+  stage.hidden = !sessionStarted;
+  tabs.hidden = !sessionStarted;
+  programStatus.hidden = !sessionStarted;
+  hint.hidden = false;
+  handLabel.hidden = sessionStarted;
   panel.hidden = false;
+  start.hidden = running;
+  pauseButton.hidden = !running;
+  start.textContent = sessionStarted ? "Продолжить тренировку" : "Начать тренировку";
+  historyButton.setAttribute("aria-expanded", "false");
   resultsButton.setAttribute("aria-expanded", "false");
   resultsButton.textContent = "Итоги";
 }
@@ -106,8 +137,10 @@ function resumeExercise(): void {
   if (program.phase !== "intro") program = beginProgram(program);
   persist(performance.now(), true);
   pauseButton.textContent = "Пауза";
+  pauseButton.setAttribute("aria-pressed", "false");
   if (!running) start.disabled = starting;
-  setHint(running ? "Раскрой ладонь перед продолжением" : "Нажми «Начать тренировку»");
+  setHint(running ? "Раскрой ладонь перед продолжением" : "Нажми «Продолжить тренировку», чтобы включить камеру");
+  (running ? taskTitle : start).focus();
 }
 
 function rememberFinal(): void { persist(performance.now(), true); }
@@ -141,6 +174,11 @@ function showResults(): void {
   stage.hidden = true;
   panel.hidden = true;
   results.hidden = false;
+  home.hidden = true;
+  hint.hidden = true;
+  tabs.hidden = true;
+  programStatus.hidden = true;
+  historyButton.setAttribute("aria-expanded", "false");
   resultsButton.setAttribute("aria-expanded", "true");
   resultsButton.textContent = program.session.status === "in_progress" ? "К упражнениям" : "Итоги";
   persist(performance.now(), true);
@@ -163,6 +201,8 @@ function stopCamera(): void {
   tracker?.close();
   tracker = null;
   start.disabled = starting;
+  start.hidden = false;
+  pauseButton.hidden = true;
   calibrateButton.disabled = true;
   pauseButton.disabled = true;
   lastFrameTimestamp = null;
@@ -174,10 +214,10 @@ function stopCamera(): void {
 
 function cameraError(error: unknown): string {
   const name = error instanceof Error ? error.name : "";
-  if (name === "NotAllowedError" || name === "SecurityError") return "Доступ к камере запрещён. Разрешите доступ в браузере и нажмите «Начать тренировку».";
+  if (name === "NotAllowedError" || name === "SecurityError") return "Доступ к камере запрещён. Разрешите доступ в браузере и повторите запуск.";
   if (name === "NotFoundError") return "Камера не найдена. Подключите камеру и повторите.";
   if (name === "NotReadableError") return "Камера недоступна. Закройте другие приложения, использующие камеру.";
-  return "Не удалось запустить камеру или трекер. Проверьте локальные /wasm и /models/hand_landmarker.task и повторите.";
+  return "Не удалось загрузить распознавание руки. Проверь подключение и повтори запуск. Если ошибка остаётся, перезагрузи страницу.";
 }
 
 function processFrame(timestampMs: number): void {
@@ -236,8 +276,6 @@ function processFrame(timestampMs: number): void {
   else if (g && (program.phase === "preparing" || program.phase === "transition")) setHint(instruction);
   else setHint(feedback.text, feedback.error, feedback.celebrating);
   updateScore();
-  programStatus.textContent = `Задание ${EXERCISES.indexOf(mode) + 1} из 3 · ${labels[mode]}`;
-  tabs.querySelectorAll<HTMLElement>("[data-mode]").forEach(tab => tab.classList.toggle("active", tab.dataset.mode === mode));
   pauseButton.disabled = false;
   const missingMs = g || tracking.lastValidTimestamp === null ? 0 : timestampMs - tracking.lastValidTimestamp;
   const nextTarget = width > 0 && height > 0 ? guidedTarget(width, height, program.session.exercises.hold.reps) : null;
@@ -274,7 +312,7 @@ function loop(timestampMs: number): void {
   } catch {
     program = pauseProgram(program, "camera");
     stopCamera();
-    setHint("Ошибка обработки кадра. Нажмите «Начать тренировку», чтобы повторить.", true);
+    setHint("Ошибка обработки кадра. Повторите запуск камеры.", true);
     return;
   }
   if (running) requestId = requestAnimationFrame(loop);
@@ -298,15 +336,20 @@ start.addEventListener("click", async () => {
   const token = ++generation;
   starting = true;
   start.disabled = true;
-  setHint("Запуск камеры и загрузка локальной модели…");
+  programStatus.textContent = "Подключение камеры";
+  setHint("Разреши доступ к камере. Подключаем видео…");
   try {
     const newStream = await initCamera(video);
     if (token !== generation) { newStream.getTracks().forEach(track => track.stop()); return; }
     stream = newStream;
+    programStatus.textContent = "Загрузка распознавания";
+    setHint("Камера подключена. Загружаем распознавание руки…");
     const newTracker = await initTracker();
     if (token !== generation) { newTracker.close(); return; }
     tracker = newTracker;
     running = true;
+    start.hidden = true;
+    pauseButton.hidden = false;
     calibrateButton.disabled = true;
     pauseButton.disabled = false;
     for (const track of stream.getTracks()) track.addEventListener("ended", () => {
@@ -327,8 +370,7 @@ start.addEventListener("click", async () => {
   }
 });
 
-// Guided order replaces manual mode switching; the three labels show progress.
-tabs.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach(button => { button.disabled = true; });
+// Step labels describe progress; they are not mode-switching controls.
 calibrateButton.hidden = true;
 pauseButton.addEventListener("click", () => {
   if (program.phase === "paused" && program.pauseReason !== "tracking") {
@@ -342,6 +384,8 @@ pauseButton.addEventListener("click", () => {
     pauseButton.textContent = "Продолжить";
     setHint("Тренировка на паузе. Нажми «Продолжить»");
   }
+  pauseButton.setAttribute("aria-pressed", String(program.phase === "paused"));
+  updateScore();
   persist(performance.now(), true);
 });
 
@@ -361,7 +405,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden && (running || start.disabled)) {
     program = pauseProgram(program, "visibility");
     stopCamera();
-    setHint("Камера остановлена. Нажмите «Начать тренировку» для продолжения.");
+    setHint("Камера остановлена. Нажмите «Продолжить тренировку» для продолжения.");
   }
 });
 window.addEventListener("pagehide", () => {
@@ -381,9 +425,17 @@ historyButton.addEventListener("click", () => {
   panel.hidden = true;
   results.hidden = true;
   historyPanel.hidden = false;
+  home.hidden = true;
+  hint.hidden = true;
+  tabs.hidden = true;
+  programStatus.hidden = true;
+  historyButton.setAttribute("aria-expanded", "true");
+  resultsButton.setAttribute("aria-expanded", "false");
+  resultsButton.textContent = "Итоги";
   renderHistory(historyPanel, store, () => sessionStarted ? showResults() : showExercise());
 });
 storageNotice.textContent = store.notice;
+showExercise();
 if (store.data.current) {
   handChoice.value = program.session.hand;
   handChoice.disabled = true;

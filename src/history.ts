@@ -31,7 +31,8 @@ export function comparison(history: Session[]): [Session, Session] | null {
 }
 const element = (tag: string, text = '') => { const node = document.createElement(tag); node.textContent = text; return node; };
 function table(headers: string[], rows: string[][]): HTMLElement {
-  const wrapper = element('div'); wrapper.className = 'table-scroll';
+  const wrapper = element('div'); wrapper.className = 'table-scroll'; wrapper.tabIndex = 0;
+  wrapper.setAttribute('role', 'region'); wrapper.setAttribute('aria-label', headers.join(', '));
   const t = element('table'); const head = element('thead'); const tr = element('tr');
   headers.forEach(text => { const th = element('th', text); th.setAttribute('scope', 'col'); tr.append(th); });
   head.append(tr); t.append(head); const body = element('tbody');

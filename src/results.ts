@@ -24,6 +24,7 @@ export function renderResults(container: HTMLElement, session: Session, onResume
     ? "Движений пока нет. Начни с пинцета: раскрой ладонь, затем соедини большой и указательный пальцы."
     : "Тренировка на паузе. Результаты сохранятся при продолжении.";
   const list = document.createElement("ul");
+  list.className = "result-cards";
   for (const row of model.rows) {
     const item = document.createElement("li");
     item.textContent = row.text;
@@ -53,6 +54,7 @@ export function renderResults(container: HTMLElement, session: Session, onResume
     container.append(finish);
   }
   const details = document.createElement("ul");
+  details.className = "result-times";
   for (const id of ["pinch", "grip", "hold"] as const) {
     const item = document.createElement("li");
     const result = session.exercises[id];
