@@ -16,7 +16,9 @@ function fixture(name: string): HandGeometry {
   for (const p of lm) {
     for (const axis of ["x", "y", "z"] as const) expect(Number.isFinite(p[axis])).toBe(true);
   }
-  return new HandGeometry(lm, 640, 480);
+  const g = HandGeometry.create(lm, 640, 480);
+  expect(g).not.toBeNull();
+  return g!;
 }
 
 describe.skipIf(missing("open-palm"))("open-palm fixture", () => {

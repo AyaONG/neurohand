@@ -12,7 +12,9 @@ const pixels: Point[] = [
 ].map(([x, y]) => ({ x, y }));
 
 function hand(w: number, h: number, pts = pixels): HandGeometry {
-  return new HandGeometry(pts.map(p => ({ x: p.x / w, y: p.y / h, z: 0 })), w, h);
+  const g = HandGeometry.create(pts.map(p => ({ x: p.x / w, y: p.y / h, z: 0 })), w, h);
+  expect(g).not.toBeNull();
+  return g!;
 }
 
 describe("HandGeometry", () => {

@@ -1,12 +1,31 @@
 import { Landmark, Point } from "./types";
 
+export const MIN_HAND_SIZE_PX = 15;
+
 export class HandGeometry {
   readonly pts: Point[];      // в пикселях, БЕЗ зеркалирования
   readonly handSize: number;  // расстояние 0–9
 
-  constructor(lm: Landmark[], w: number, h: number) {
-    this.pts = lm.map(p => ({ x: p.x * w, y: p.y * h }));
-    this.handSize = this.dist(0, 9);
+  private constructor(pts: Point[], handSize: number) {
+    this.pts = pts;
+    this.handSize = handSize;
+  }
+
+  /** Reject invalid frames without exceptions in the tracking loop. */
+  static create(lm: Landmark[], w: number, h: number): HandGeometry | null {
+    if (!Array.isArray(lm) || lm.length !== 21 ||
+        !Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+    const pts: Point[] = [];
+    for (const p of lm) {
+      if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) return null;
+      const x = p.x * w;
+      const y = p.y * h;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      pts.push({ x, y });
+    }
+    const handSize = Math.hypot(pts[0].x - pts[9].x, pts[0].y - pts[9].y);
+    if (!Number.isFinite(handSize) || handSize < MIN_HAND_SIZE_PX) return null;
+    return new HandGeometry(pts, handSize);
   }
 
   dist(a: number, b: number): number {
