@@ -15,7 +15,9 @@ nav button.active { border-color: #38bdf8; }
 #hint.success { color: #bbf7d0; }
 #score { position: absolute; top: 12px; left: 12px; font-size: 22px; font-weight: 600; }
 #debug { position: absolute; top: 50px; left: 12px; margin: 0; padding: 8px; font-size: 11px; max-height: 55%; overflow: auto; background: rgba(0,0,0,.6); }
-#panel { display: flex; gap: 8px; justify-content: center; padding: 12px; }
+#panel { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; padding: 12px; }
+#program-status { text-align: center; }
+select { font: inherit; padding: 8px; background: #1e293b; color: #e5e7eb; border: 1px solid #334155; border-radius: 8px; }
 #results { max-width: 720px; margin: 0 auto; padding: 16px; line-height: 1.6; }
 #results li { padding: 8px 0; font-size: 20px; }
 .results-note { color: #cbd5e1; font-size: 14px; }

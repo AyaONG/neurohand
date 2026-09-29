@@ -8,7 +8,7 @@ describe("session results", () => {
     expect(getResults(empty).empty).toBe(true);
     const started = startExercise(empty, "pinch");
     expect(getResults(started)).toEqual({ empty: false, rows: [
-      { exercise: "pinch", text: "Пинцет: 0" },
+      { exercise: "pinch", text: "Пинцет: 0 / 5" },
       { exercise: "grip", text: "Сжатия: Не начато" },
       { exercise: "hold", text: "Перенос: Не начато" },
     ] });

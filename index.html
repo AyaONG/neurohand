@@ -17,6 +17,7 @@
     </nav>
   </header>
   <main>
+    <p id="program-status">5 пинцетов → 5 сжатий → 3 цели по 2 секунды</p>
     <section id="stage">
       <video id="video" playsinline muted></video>
       <canvas id="canvas"></canvas>
@@ -25,8 +26,10 @@
       <pre id="debug" hidden></pre>
     </section>
     <section id="panel">
-      <button id="btn-start">Включить камеру</button>
-      <button id="btn-calibrate" disabled>Калибровка</button>
+      <label>Рука <select id="hand-choice"><option value="unspecified">Не выбрана</option><option value="left">Левая</option><option value="right">Правая</option></select></label>
+      <button id="btn-start">Начать тренировку</button>
+      <button id="btn-pause" disabled>Пауза</button>
+      <button id="btn-calibrate" disabled hidden>Калибровка</button>
       <button id="btn-dump" hidden>Dump</button>
     </section>
     <section id="results" aria-label="Текущие итоги тренировки" hidden></section>

@@ -13,6 +13,7 @@ export function getFeedback(input: {
   phase: Phase;
   success: SuccessFeedback | null;
   instruction: string;
+  target?: number;
 }): Feedback {
   if (!input.visible) return { text: "Рука не видна. Верни ладонь в кадр", success: false, error: false, celebrating: false };
   if (input.error) return {
@@ -24,7 +25,7 @@ export function getFeedback(input: {
   const age = input.success ? input.timestampMs - input.success.at : Infinity;
   if (input.success?.exercise === input.exercise && age >= 0 && age < SUCCESS_MESSAGE_MS) {
     const label = { pinch: "Захват засчитан", grip: "Сжатие засчитано", hold: "Цель засчитана" }[input.exercise];
-    return { text: `✓ ${label} · ${input.success.reps}`, success: age < SUCCESS_COLOR_MS, error: false, celebrating: true };
+    return { text: `✓ ${label} · ${input.success.reps}${input.target ? ` из ${input.target}` : ""}`, success: age < SUCCESS_COLOR_MS, error: false, celebrating: true };
   }
   const next = input.phase === "CONFIRMED" && input.exercise !== "hold"
     ? input.exercise === "pinch" ? "Разведи пальцы для следующего захвата" : "Раскрой кисть для следующего сжатия"
