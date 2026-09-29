@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>drawSmartHand — локальный пример</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #0c1422; color: #e9f0fc; font: 16px/1.6 system-ui, sans-serif; }
+    main { max-width: 1380px; margin: auto; padding: 48px 28px; }
+    .eyebrow { color: #87cefa; font-size: 12px; font-weight: 700; letter-spacing: .16em; }
+    h1 { font-size: clamp(28px, 4vw, 42px); line-height: 1.2; margin: 12px 0; }
+    .intro { color: #9fb0c8; max-width: 760px; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-top: 32px; }
+    article { background: #121e30; border: 1px solid #26364d; border-radius: 20px; overflow: hidden; }
+    .card-head { padding: 22px 24px 0; }
+    .tag { display: inline-flex; gap: 8px; align-items: center; color: #87cefa; font-size: 12px; font-weight: 700; letter-spacing: .08em; }
+    .tag::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .success { color: #00e676; } .error { color: #ff7777; }
+    h2 { font-size: 20px; margin: 8px 0 0; }
+    canvas { display: block; width: 100%; height: auto; }
+    .caption { min-height: 82px; color: #9fb0c8; padding: 0 24px 22px; margin: 0; font-size: 14px; }
+    footer { color: #9fb0c8; font-size: 13px; margin-top: 24px; }
+    code { color: #cfdef3; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } article { max-width: 480px; width: 100%; margin: auto; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">CANVAS · HAND GEOMETRY</div>
+    <h1>Три состояния руки</h1>
+    <p class="intro">Локальный пример <code>drawSmartHand</code> на заданных точках. Цвет показывает переданный статус; камера и распознавание жестов здесь не используются.</p>
+    <div class="grid">
+      <article>
+        <div class="card-head"><span class="tag">DEFAULT</span><h2>Нейтральное состояние</h2></div>
+        <canvas id="default" width="420" height="430" role="img" aria-label="Голубой скелет открытой ладони"></canvas>
+        <p class="caption">Светло-голубые кости и суставы.</p>
+      </article>
+      <article>
+        <div class="card-head"><span class="tag success">SUCCESS</span><h2>Упражнение выполнено</h2></div>
+        <canvas id="success" width="420" height="430" role="img" aria-label="Зелёный скелет руки в состоянии успеха"></canvas>
+        <p class="caption">Те же точки, ярко-зелёный цвет.</p>
+      </article>
+      <article>
+        <div class="card-head"><span class="tag error">ERROR</span><h2>Дожмите мизинец</h2></div>
+        <canvas id="error" width="420" height="430" role="img" aria-label="Голубой скелет руки с красными суставами мизинца"></canvas>
+        <p class="caption">Красным выделены суставы <code>17, 18, 19, 20</code>. Все кости остаются голубыми.</p>
+      </article>
+    </div>
+    <footer id="render-status" role="status">Загрузка примера…</footer>
+  </main>
+  <script type="module">
+    const renderStatus = document.getElementById("render-status");
+    try {
+      const { drawSmartHand } = await import("./drawSmartHand.js");
+      const landmarks = [
+        [0.50, 0.88],
+        [0.34, 0.71], [0.23, 0.60], [0.15, 0.48], [0.09, 0.38],
+        [0.36, 0.48], [0.32, 0.32], [0.30, 0.20], [0.29, 0.11],
+        [0.49, 0.44], [0.49, 0.27], [0.49, 0.15], [0.49, 0.07],
+        [0.62, 0.47], [0.65, 0.31], [0.67, 0.20], [0.68, 0.12],
+        [0.74, 0.54], [0.79, 0.42], [0.83, 0.33], [0.86, 0.26],
+      ].map(([x, y]) => ({ x, y, z: 0 }));
+
+      for (const status of ["DEFAULT", "SUCCESS", "ERROR"]) {
+        const canvas = document.getElementById(status.toLowerCase());
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("Canvas 2D недоступен");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawSmartHand(ctx, landmarks, status, status === "ERROR" ? [17, 18, 19, 20] : []);
+      }
+      renderStatus.textContent = "Отрисовано: 3 состояния · 21 сустав в каждом · Только локальный просмотр";
+    } catch (error) {
+      renderStatus.textContent = `Ошибка отрисовки: ${error.message}`;
+      console.error(error);
+    }
+  </script>
+</body>
+</html>
