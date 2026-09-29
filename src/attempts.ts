@@ -73,9 +73,10 @@ export function interruptAttempt(log: AttemptLog | null, dtMs: number, first: bo
 export function attemptSummary(log: AttemptLog | null, confirmedCount?: number): string {
   if (!log) return 'Количество попыток в этой версии не записывалось.';
   const n = (outcome: AttemptOutcome) => log.records.filter(a => a.outcome === outcome).length;
+  const skipped = log.records.filter(a => a.endReason === 'skip').length;
   return `${log.historyComplete ? '' : 'До обновления количество попыток неизвестно. После обновления: '}` +
     `Оценено попыток: ${n('completed') + n('partial') + n('incomplete')}. ${n('completed')} выполнено · ${n('partial')} частично · ${n('incomplete')} не завершено. ` +
-    `Не удалось оценить: ${n('unscorable')}. Отменено: ${n('cancelled')}.` +
+    `Не удалось оценить: ${n('unscorable')}. Пропущено: ${skipped}. Остановлено: ${n('cancelled') - skipped}.` +
     (log.active ? ' Есть активная попытка.' : '') +
     (log.historyComplete && confirmedCount !== undefined && confirmedCount > n('completed')
       ? ` Ещё подтверждено действий: ${confirmedCount - n('completed')}; начало этих попыток не зафиксировано.` : '');

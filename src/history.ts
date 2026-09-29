@@ -1,15 +1,12 @@
-import { pairCounts } from './opposition';
+import { activeSeconds, attemptText, comparableResults, conditionsKey, conditionLabel, defaultFilter, EXERCISE_LABELS, filterHistory, metricText, type ExerciseFilter, type HistoryFilter } from './progress';
 import type { Session } from './session';
-import { comparable, type ProgressStore } from './storage';
+import { type ProgressStore } from './storage';
 import { renderResults, getResults } from './results';
 
 const ids = ['pinch', 'grip', 'hold'] as const;
 const titles = ['Пинцет', 'Сжатия', 'Цели'];
 const hands = { left: 'Левая', right: 'Правая', unspecified: 'Не выбрана' };
 const statuses = { completed: 'Завершена', stopped: 'Остановлена', in_progress: 'На паузе' };
-const active = (s: Session) => (Object.values(s.exercises).reduce((n, r) => n + r.activeMs, 0) / 1000).toFixed(1);
-const prompts = (s: Session) => ids.reduce((n, id) => n + Object.values(s.exercises[id].promptEpisodes).reduce((a, b) => a + b, 0), 0);
-const pairText = (s: Session) => s.mode === 'opposition' ? `${pairCounts(s).completed}/${s.opposition!.sequence.length} · частично: ${pairCounts(s).partial}` : '—';
 const stamp = (s: Session) => new Date(s.endedAt ?? s.startedAt).toLocaleString('ru-RU');
 export function localDay(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -23,10 +20,10 @@ export function activity(history: Session[], now = new Date()) {
       partial: records.filter(s => s.status === 'stopped').length };
   });
 }
-export function comparison(history: Session[]): [Session, Session] | null {
+export function comparison(history: Session[], exercise: ExerciseFilter = 'all'): [Session, Session] | null {
   const sorted = [...history].sort((a, b) => Date.parse(b.endedAt!) - Date.parse(a.endedAt!));
   for (const [i, newer] of sorted.entries()) {
-    const older = sorted.slice(i + 1).find(s => comparable(newer, s));
+    const older = sorted.slice(i + 1).find(s => comparableResults(newer, s, exercise));
     if (older) return [older, newer];
   }
   return null;
@@ -41,28 +38,58 @@ function table(headers: string[], rows: string[][]): HTMLElement {
   rows.forEach(row => { const tr = element('tr'); row.forEach(text => tr.append(element('td', text))); body.append(tr); });
   t.append(body); wrapper.append(t); return wrapper;
 }
-export function renderHistory(container: HTMLElement, store: ProgressStore, onBack: () => void): void {
+export function renderHistory(container: HTMLElement, store: ProgressStore, onBack: () => void, filter: HistoryFilter = defaultFilter(), page = 0, focusId?: string): void {
   const heading = element('h2', 'Мой прогресс'); heading.tabIndex = -1;
   const back = element('button', 'К тренировке'); back.id = 'btn-history-back'; back.addEventListener('click', onBack);
   container.replaceChildren(heading, back,
-    element('p', 'История хранится в этом браузере на этом адресе, включая порт. Между устройствами не синхронизируется. Последние 30 тренировок.'),
+    element('p', 'История хранится в этом браузере на этом адресе, включая порт. Между устройствами не синхронизируется. Показ по 30 занятий; остальные записи доступны на следующих страницах.'),
     element('p', store.notice));
-  const history = store.data.history;
-  if (!history.length) container.append(element('p', 'Завершённых тренировок пока нет. Начни тренировку — здесь появятся твои результаты.'));
-  else {
+  const matching = filterHistory(store.data.history, { ...filter, seriesId: '' });
+  const history = filterHistory(store.data.history, filter);
+  const pages = Math.max(1, Math.ceil(history.length / 30));
+  page = Math.max(0, Math.min(page, pages - 1));
+  const visible = history.slice(page * 30, (page + 1) * 30);
+  const controls = element('div'); controls.className = 'history-filters';
+  function select(id: string, title: string, choices: [string, string][], value: string, change: (value: string) => HistoryFilter) {
+    const label = element('label', title), input = document.createElement('select'); input.id = id;
+    choices.forEach(([value, text]) => { const option = document.createElement('option'); option.value = value; option.textContent = text; input.append(option); });
+    input.value = value;
+    input.addEventListener('change', () => renderHistory(container, store, onBack, change(input.value), 0, id));
+    label.append(input); controls.append(label);
+  }
+  select('history-exercise', 'Упражнение', [['all', 'Все упражнения'], ...Object.entries(EXERCISE_LABELS)], filter.exercise,
+    value => ({ ...filter, exercise: value as ExerciseFilter, seriesId: '' }));
+  select('history-hand', 'Рука', [['all', 'Все руки'], ...Object.entries(hands)], filter.hand,
+    value => ({ ...filter, hand: value as HistoryFilter['hand'], seriesId: '' }));
+  const unique = new Map<string, Session>();
+  matching.forEach(s => { const key = conditionsKey(s, filter.exercise); if (!unique.has(key)) unique.set(key, s); });
+  select('history-series', 'Одинаковые условия', [['', 'Все настройки'], ...[...unique.values()].map(s => [s.id, `Как занятие ${stamp(s)} · ${hands[s.hand]} · ${conditionLabel(s)}`] as [string, string])], filter.seriesId,
+    value => ({ ...filter, seriesId: value }));
+  container.append(controls, element('p', 'Статус занятия описывает завершение маршрута. Статусы попыток ниже показывают фактическое выполнение. Хранение: в этом браузере; облачная синхронизация не включена.'));
+  if (store.data.history.length && !history.length) container.append(element('p', 'По выбранным фильтрам занятий нет. Измени упражнение или руку.'));
+
+  if (!store.data.history.length) container.append(element('p', 'Завершённых тренировок пока нет. Начни тренировку — здесь появятся твои результаты.'));
+  else if (history.length) {
     const last = history[0];
-    container.append(element('h3', 'Последняя тренировка'), element('p', `${stamp(last)} · ${statuses[last.status]} · ${hands[last.hand]} · ${getResults(last).rows.map(row => row.text).join(' · ')}`));
+    container.append(element('h3', 'Последняя тренировка'), element('p', `${stamp(last)} · ${statuses[last.status]} · ${hands[last.hand]} · ${getResults(last).rows.filter(row => filter.exercise === 'all' || row.exercise === filter.exercise).map(row => row.text).join(' · ')}`));
   }
   if (store.data.current) container.append(element('p', `Текущая тренировка: ${stamp(store.data.current)}. Результаты доступны через «К тренировке».`));
   container.append(element('h3', '7 местных календарных дней'), table(['Дата', 'Завершённые', 'Остановленные'],
     activity(history).map(d => [d.label, d.completed ? `✓ ${d.completed}` : '—', d.partial ? `◦ ${d.partial}` : '—'])));
-  container.append(element('h3', 'История'), table(['Дата и время', 'Рука', 'Статус', ...titles, 'Пары: полностью / задания', 'Кольцо', 'Активное время, с'],
-    history.map(s => [stamp(s), hands[s.hand], statuses[s.status], ...ids.map(id => s.mode !== 'guided' ? '—' : s.exercises[id].started ? `${s.exercises[id].reps}/${s.exercises[id].target}` : 'Не начато'), pairText(s), s.mode === 'ring' ? getResults(s).rows[0].text : '—', active(s)])));
+  container.append(element('h3', 'История'), table(['Дата и время', 'Рука', 'Статус занятия', 'Результаты упражнений', 'Статусы попыток', 'Активное время, с', 'Хранение'],
+    visible.map(s => [stamp(s), hands[s.hand], statuses[s.status], metricText(s, filter.exercise), attemptText(s, filter.exercise), activeSeconds(s, filter.exercise), store.notice ? 'Доступно в памяти; см. сообщение хранилища' : 'В этом браузере'])));
+  const navigation = element('div'); navigation.className = 'history-pages';
+  const previous = document.createElement('button'), next = document.createElement('button');
+  previous.id = 'history-previous'; previous.textContent = 'Предыдущие'; previous.disabled = page === 0;
+  next.id = 'history-next'; next.textContent = 'Следующие'; next.disabled = page + 1 >= pages;
+  previous.addEventListener('click', () => renderHistory(container, store, onBack, filter, page - 1, 'history-previous'));
+  next.addEventListener('click', () => renderHistory(container, store, onBack, filter, page + 1, 'history-next'));
+  navigation.append(previous, element('span', `Страница ${page + 1} из ${pages} · занятий: ${history.length}`), next); container.append(navigation);
   const details = element('section'); details.setAttribute('aria-label', 'Детали тренировки');
-  for (const s of history) {
+  for (const s of visible) {
     const button = element('button', `Детали: ${stamp(s)} · ${hands[s.hand]}`);
     button.addEventListener('click', () => {
-      renderResults(details, s, () => {}, undefined, () => renderHistory(container, store, onBack));
+      renderResults(details, s, () => {}, undefined, () => renderHistory(container, store, onBack, filter, page));
       // The historical result is read-only; its action returns to the list, never starts a camera.
       const action = details.querySelector<HTMLButtonElement>('#btn-new');
       if (action) action.textContent = 'К списку истории';
@@ -71,17 +98,16 @@ export function renderHistory(container: HTMLElement, store: ProgressStore, onBa
     container.append(button);
   }
   container.append(details, element('h3', 'Сопоставимые тренировки'));
-  const pair = comparison(history);
+  const pair = comparison(history, filter.exercise);
   if (pair) {
-    container.append(element('p', `Одинаковые настройки и рука: ${hands[pair[0].hand]}. Значения показаны без оценки улучшения.`),
+    container.append(element('p', `Одинаковые записанные настройки, версии правил и рука: ${hands[pair[0].hand]}. Сравниваются завершённые маршруты; частичные результаты допустимы. Это не оценка восстановления.`),
       table(['Показатель', stamp(pair[0]), stamp(pair[1])], [
-        ...(pair[0].mode === 'ring' ? [['Кольцо', ...pair.map(s => getResults(s).rows[0].text)]] : pair[0].mode === 'opposition' ? [['Пары: полностью / задания', ...pair.map(pairText)]] : ids.map((id, i) => [titles[i], ...pair.map(s => `${s.exercises[id].reps}/${s.exercises[id].target}`)])),
-        ['Активное время, с', ...pair.map(active)],
-        ...(pair[0].mode !== 'guided' ? [] : [['Эпизоды подсказок', ...pair.map(s => String(prompts(s)))]]),
-        ...(pair[0].mode !== 'guided' ? [] : [['Лучшее удержание, с', ...pair.map(s => s.exercises.hold.bestHoldMs === null ? 'Нет данных' : (s.exercises.hold.bestHoldMs / 1000).toFixed(1))]]),
+        ['Конкретные результаты', ...pair.map(s => metricText(s, filter.exercise))],
+        ['Статусы попыток', ...pair.map(s => attemptText(s, filter.exercise))],
+        ['Активное время, с', ...pair.map(s => activeSeconds(s, filter.exercise))],
       ]));
-  } else container.append(element('p', 'Заверши ещё одну тренировку с теми же настройками и явно выбранной рукой для сравнения. С неизвестной рукой сравнение недоступно.'));
-  if (store.legacy) container.append(element('h3', 'Запись старой версии'), element('p', 'Дата, рука и настройки неизвестны. В сравнение и календарь не включена. Исходная запись сохранена.'),
+  } else container.append(element('p', 'Недостаточно сопоставимых занятий. Нужны два завершённых маршрута с той же явно выбранной рукой, версией правил и настройками. Без записанной версии правил сравнение недоступно. Неизвестные попытки не восстанавливаются из счётчиков успехов.'));
+  if (store.legacy && (filter.hand === 'all' || filter.hand === 'unspecified') && (filter.exercise === 'all' || ids.some(id => id === filter.exercise)) && !filter.seriesId) container.append(element('h3', 'Запись старой версии'), element('p', 'Дата, рука и настройки неизвестны. В сравнение и календарь не включена. Исходная запись сохранена.'),
     table(titles, [ids.map(id => store.legacy!.counters[id] === undefined ? 'Нет данных' : String(store.legacy!.counters[id]))]));
-  heading.focus();
+  if (focusId) container.querySelector<HTMLElement>(`#${focusId}`)?.focus(); else heading.focus();
 }

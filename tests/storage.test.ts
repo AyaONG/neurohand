@@ -34,13 +34,14 @@ describe('versioned local progress', () => {
     expect(restored.data.history[0].id).toBe('one');
   });
 
-  it('retains only the newest 30 completed or stopped sessions', () => {
-    const store = new ProgressStore(() => memoryStorage());
+  it('retains every local session beyond the UI page limit and across reload', () => {
+    const memory = memoryStorage(), store = new ProgressStore(() => memory);
     for (let i = 0; i < 35; i++) store.save(complete(String(i), new Date(Date.parse('2026-09-29T11:00:00Z') + i * 1000).toISOString()), i);
     store.save(finishSession(session('stop'), 'stopped', '2026-09-29T12:00:00Z'), 40);
-    expect(store.data.history).toHaveLength(30);
+    expect(store.data.history).toHaveLength(36);
+    expect(new ProgressStore(() => memory).data.history).toHaveLength(36);
     expect(store.data.history[0].id).toBe('stop');
-    expect(store.data.history.at(-1)?.id).toBe('6');
+    expect(store.data.history.at(-1)?.id).toBe('0');
   });
 
   it('checkpoints time at 2s, writes events immediately and omits extra fields', () => {
@@ -112,6 +113,15 @@ describe('versioned local progress', () => {
 describe('progress comparisons and local calendar', () => {
   it('compares only two completed sessions with the same explicit hand and settings', () => {
     const a = complete('old'), b = complete('new', '2026-09-29T12:00:00Z');
+    // Known exercise rules must be present; success counters alone do not establish them.
+    expect(comparable(a, b)).toBe(false);
+    for (const s of [a, b]) for (const id of ['pinch', 'grip', 'hold'] as const) s.attempts!.records.push({
+      attemptId: id, exerciseId: id, protocolVersion: s.protocolId, recognizerVersion: s.recognitionVersion,
+      rulesVersion: 'basic-attempts-v1', hand: 'left', settings: { target: s.exercises[id].target, holdTargetMs: 2000, targetRadiusRatio: 0.12, maxActiveMs: 10000 },
+      startedAt: s.startedAt, lastObservedAt: s.endedAt!, endedAt: s.endedAt, outcome: 'completed', endReason: 'confirmed',
+      activeMs: 1000, validTrackingMs: 1000, interruptions: { count: 0, durationMs: 0 },
+      metrics: id === 'hold' ? { kind: 'hold', bestHoldMs: 2000, targetMs: 2000, progress: 1 } : { kind: 'closure', startDistance: 1, bestDistance: 0.2, successDistance: 0.28, progress: 1 },
+    });
     expect(comparable(a, b)).toBe(true);
     for (const change of [{ hand: 'right' }, { hand: 'unspecified' }, { recognitionVersion: 'changed' }, { protocolId: 'other' }, { status: 'stopped' }]) {
       expect(comparable(a, { ...b, ...change } as typeof b)).toBe(false);

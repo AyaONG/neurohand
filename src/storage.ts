@@ -1,3 +1,4 @@
+import { comparableResults } from './progress';
 import { parseRingSettings, settleRing, finishesRing } from './ring';
 import { parseOppositionPlan, consumesPair, PAIR_RULES, PAIR_THRESHOLDS } from './opposition';
 import { closeActive } from './attempts';
@@ -96,11 +97,7 @@ export function parseLegacy(v: unknown): LegacyRecord | null {
   return Object.keys(counters).length ? { kind: 'legacy', counters } : null;
 }
 
-export function comparable(a: Session, b: Session): boolean {
-  return a.status === 'completed' && b.status === 'completed' && a.hand !== 'unspecified' && a.hand === b.hand &&
-    a.mode === b.mode && (a.mode !== 'ring' || JSON.stringify(a.ring) === JSON.stringify(b.ring)) && (a.mode !== 'opposition' || (a.opposition?.rulesVersion === b.opposition?.rulesVersion && JSON.stringify(a.opposition?.sequence) === JSON.stringify(b.opposition?.sequence))) && a.protocolId === b.protocolId && a.recognitionVersion === b.recognitionVersion &&
-    (Object.keys(a.settings) as (keyof Session['settings'])[]).every(key => a.settings[key] === b.settings[key]);
-}
+export const comparable = comparableResults;
 
 export class ProgressStore {
   data: Progress = { schemaVersion: 3, current: null, history: [] };
@@ -129,7 +126,7 @@ export class ProgressStore {
           if (!seen.has(session.id)) { this.data.history.push(session); seen.add(session.id); }
         }
         this.data.history.sort((a, b) => Date.parse(b.endedAt!) - Date.parse(a.endedAt!));
-        this.data.history = this.data.history.slice(0, 30);
+        // Display limits belong to the UI; every local record remains available for future sync.
         if (v.current !== null) {
           const current = parseSession(v.current);
           if (!current || v.current.schemaVersion !== v.schemaVersion || current.status !== 'in_progress') invalid = true;
@@ -172,7 +169,7 @@ export class ProgressStore {
     if (clean.status === 'in_progress') this.data.current = clean;
     else {
       if (this.data.current?.id === clean.id) this.data.current = null;
-      this.data.history = [clean, ...this.data.history].sort((a, b) => Date.parse(b.endedAt!) - Date.parse(a.endedAt!)).slice(0, 30);
+      this.data.history = [clean, ...this.data.history].sort((a, b) => Date.parse(b.endedAt!) - Date.parse(a.endedAt!));
     }
     if (!this.writable) return;
     try {

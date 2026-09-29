@@ -98,3 +98,8 @@ td { min-width: 90px; }
 #pair-guide circle.selected { fill: #fcd34d; stroke: #fff; }
 
 .pair-results { grid-template-columns: 1fr; }
+
+.history-filters { display: flex; flex-wrap: wrap; gap: 16px; margin: 20px 0; }
+.history-filters label { display: grid; gap: 6px; min-width: 0; flex: 1 1 200px; }
+.history-filters select { width: 100%; }
+.history-pages { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }

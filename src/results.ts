@@ -1,6 +1,6 @@
-import { RING_NAMES } from './ring';
-import { pairCounts, FINGER_NAMES } from './opposition';
-import { attemptSummary, type AttemptEndReason } from './attempts';
+import { attemptDetail, attemptText, ringMetric } from './progress';
+import { pairCounts } from './opposition';
+import { attemptSummary } from './attempts';
 import type { Session } from "./session";
 import type { ExerciseId } from "./types";
 
@@ -78,29 +78,16 @@ export function renderResults(container: HTMLElement, session: Session, onResume
   const attempts = document.createElement('p');
   attempts.textContent = attemptSummary(session.attempts, Object.values(session.exercises).reduce((sum, r) => sum + r.reps, 0));
   container.append(details, attempts, notice, disclaimer);
-  if (session.mode === 'opposition') {
-    const outcomes = { completed: 'Выполнено', partial: 'Частично', incomplete: 'Не завершено', unscorable: 'Не удалось оценить', cancelled: 'Пропущено / остановлено' };
-    const pairs = document.createElement('ul');
-    for (const a of session.attempts!.records) {
-      const row = document.createElement('li');
-      row.textContent = `Большой + ${FINGER_NAMES[a.settings.pairTip!]} — ${outcomes[a.outcome!]} · ${(a.activeMs / 1000).toFixed(1)} с`;
-      pairs.append(row);
-    }
-    container.append(pairs);
+  const attemptHeading = document.createElement('h3'); attemptHeading.textContent = 'Статусы попыток';
+  const breakdown = document.createElement('p'); breakdown.textContent = attemptText(session);
+  const attemptList = document.createElement('ul');
+  for (const a of session.attempts?.records ?? []) {
+    const item = document.createElement('li'); item.textContent = attemptDetail(a); attemptList.append(item);
   }
+  container.append(attemptHeading, breakdown, attemptList);
   if (session.mode === 'ring') {
-    const outcomes = { completed: 'Выполнено', partial: 'Частично', incomplete: 'Не завершено', unscorable: 'Не удалось оценить', cancelled: 'Остановлено' };
-    const reasons: Record<AttemptEndReason, string> = { confirmed: 'возврат к старту', returned: 'возврат', manual: 'завершено вручную', pause: 'пауза', results: 'просмотр итогов', visibility: 'вкладка скрыта', tracking: 'потеря руки', camera: 'камера недоступна', reload: 'перезагрузка', resize: 'размер экрана изменён', timeout: 'время истекло', skip: 'пропуск', off_path: 'выход из коридора / неверное направление', jump: 'скачок координат' };
-    const list = document.createElement('ul');
-    for (const a of session.attempts!.records) {
-      if (a.metrics.kind !== 'ring') continue;
-      const item = document.createElement('li');
-      item.textContent = `${RING_NAMES[session.ring!.tip]} · ${a.metrics.marks} / 12 · ${outcomes[a.outcome!]} · ${(a.activeMs / 1000).toFixed(1)} с · ${reasons[a.endReason!]}`;
-      list.append(item);
-    }
-    container.append(list);
     const note = document.createElement('p');
-    note.textContent = 'Измеряется экранный путь кончика, не изолированное движение пальца. Направление: по часовой стрелке.';
+    note.textContent = ringMetric(session) + ' Измеряется экранный путь кончика, не изолированное движение пальца.';
     container.append(note);
   }
   heading.focus();

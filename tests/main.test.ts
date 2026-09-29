@@ -484,3 +484,45 @@ it('a window resize finalizes a ring segment and cannot resume a paused camera a
   s = JSON.parse(memory.getItem('neurohand:progress:v3')!).current;
   expect(s.paused).toBe(true); expect(s.attempts.records).toHaveLength(1);
 });
+
+it('filters history by exercise, hand and conditions, pages visible rows without deleting storage', async () => {
+  const { createSession, createRingSession, finishSession } = await import('../src/session');
+  const { settleRing } = await import('../src/ring');
+  const memory = memoryStorage();
+  const history = Array.from({ length: 35 }, (_, i) => {
+    const s = createSession(`basic-${i}`, '2026-09-30T00:00:00Z'); s.hand = 'left';
+    return finishSession(s, 'stopped', '2026-09-30T00:01:00Z');
+  });
+  for (const hand of ['left', 'right'] as const) {
+    const s = createRingSession(8, `ring-${hand}`, '2026-09-30T00:00:00Z'); s.hand = hand;
+    s.attempts!.records.push({ attemptId: hand, exerciseId: 'ring', hand, rulesVersion: 'ring-v1', protocolVersion: s.protocolId,
+      recognizerVersion: s.recognitionVersion, settings: { target: 1, maxActiveMs: 15000, targetRadiusRatio: 0.12, holdTargetMs: 2000, ring: s.ring },
+      startedAt: s.startedAt, lastObservedAt: s.startedAt, endedAt: s.startedAt, outcome: 'partial', endReason: 'manual',
+      activeMs: 5000, validTrackingMs: 5000, interruptions: { count: 0, durationMs: 0 },
+      metrics: { kind: 'ring', marks: 8, returned: false, progress: 8 / 12, pathLength: 4 } });
+    history.push(settleRing(s));
+  }
+  const raw = JSON.stringify({ schemaVersion: 3, current: null, history });
+  memory.setItem('neurohand:progress:v3', raw);
+  await setup('', memory); await elements['btn-history'].fire('click');
+  const flatten = (node: Element): Element[] => [node, ...node.children.flatMap(flatten)];
+  const find = (id: string) => flatten(elements.history).find(n => n.id === id)!;
+  const details = () => flatten(elements.history).filter(n => n.textContent.startsWith('Детали:'));
+  expect(details()).toHaveLength(30);
+  await find('history-next').fire('click'); expect(details()).toHaveLength(7);
+  expect(memory.getItem('neurohand:progress:v3')).toBe(raw);
+  Object.assign(find('history-exercise'), { value: 'ring' }); await find('history-exercise').fire('change');
+  expect(details()).toHaveLength(2); expect(find('history-previous').disabled).toBe(true);
+  Object.assign(find('history-hand'), { value: 'left' }); await find('history-hand').fire('change');
+  expect(details()).toHaveLength(1);
+  Object.assign(find('history-series'), { value: 'ring-left' }); await find('history-series').fire('change');
+  expect(details()).toHaveLength(1);
+  const texts = () => flatten(elements.history).map(n => n.textContent).join(' ');
+  expect(texts()).toContain('Лучший оценённый путь: 8 / 12');
+  expect(texts()).toContain('частично: 1'); expect(texts()).toContain('Статус занятия'); expect(texts()).toContain('Статусы попыток');
+  await details()[0].fire('click'); expect(texts()).toContain('Выполнено частично');
+  Object.assign(find('history-hand'), { value: 'unspecified' }); await find('history-hand').fire('change');
+  expect(details()).toHaveLength(0); expect(texts()).toContain('По выбранным фильтрам занятий нет');
+  expect(texts()).toContain('Недостаточно сопоставимых занятий');
+  expect(memory.getItem('neurohand:progress:v3')).toBe(raw);
+});
