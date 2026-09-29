@@ -168,6 +168,9 @@ describe("app wiring with simulated camera frames", () => {
     expect(mocks.draw.mock.lastCall?.[3].enabled).toBe(true);
     await elements["btn-dump"].fire("click");
     expect(mocks.dump).toHaveBeenCalledOnce();
+    expect(mocks.dump.mock.lastCall![0]).toMatchObject({ videoWidth: 640, videoHeight: 480, exercise: "pinch" });
+    expect(mocks.dump.mock.lastCall![0]).toHaveProperty("observedReading");
+    expect(mocks.dump.mock.lastCall![0]).not.toHaveProperty("expectedReading");
   });
 
   it("runs the full guided route without tabs, finalizes once, stops tracks and starts a separate training", async () => {

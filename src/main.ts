@@ -299,8 +299,8 @@ function processFrame(timestampMs: number): void {
     previousWrongJoint: tracking.previousWrongJoint, missingMs, timeoutMs: DEFAULT_CONFIG.NULL_TIMEOUT_MS, width, height,
   });
   capture = g && landmarks && reading ? {
-    timestamp: timestampMs, exercise: mode,
-    landmarks: landmarks.map(p => ({ x: p.x, y: p.y, z: p.z })), expectedReading: reading,
+    timestamp: timestampMs, exercise: mode, videoWidth: width, videoHeight: height,
+    landmarks: landmarks.map(p => ({ x: p.x, y: p.y, z: p.z })), observedReading: reading,
   } : null;
   dump.disabled = capture === null;
 }
