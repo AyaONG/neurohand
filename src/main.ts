@@ -7,7 +7,8 @@ import { beginProgram, createProgram, EXERCISES, guidedTarget, pauseProgram, pro
 import { drawHandOverlay, mirrorPoint } from "./draw";
 import { SCENES, mirroredPinchPoint, type SparkFlight } from "./scenes";
 import { dumpCapture, updateDebug, type Capture } from "./debug";
-import type { Session } from "./session";
+import { ProgressStore } from "./storage";
+import { renderHistory } from "./history";
 import { getFeedback } from "./feedback";
 import { renderResults } from "./results";
 import type { ExerciseId } from "./types";
@@ -34,10 +35,17 @@ const handChoice = document.querySelector<HTMLSelectElement>("#hand-choice")!;
 const programStatus = document.querySelector<HTMLElement>("#program-status")!;
 const labels: Record<ExerciseId, string> = { pinch: "Пинцет", grip: "Эспандер", hold: "Перенос" };
 
-let mode: ExerciseId = "pinch";
-let program = createProgram();
-// Final snapshots survive a new session in memory; persistence is stage 4.
-const finalizedSessions: Session[] = [];
+const historyPanel = document.querySelector<HTMLElement>("#history")!;
+const historyButton = document.querySelector<HTMLButtonElement>("#btn-history")!;
+const storageNotice = document.querySelector<HTMLElement>("#storage-notice")!;
+const store = new ProgressStore();
+let program = store.data.current ? pauseProgram(createProgram(store.data.current), "results") : createProgram();
+let mode: ExerciseId = program.session.currentExercise;
+let sessionStarted = !!store.data.current;
+function persist(timestampMs = performance.now(), force = false): void {
+  if (sessionStarted) store.save(program.session, timestampMs, force);
+  if (storageNotice.textContent !== store.notice) storageNotice.textContent = store.notice;
+}
 let tracker: Awaited<ReturnType<typeof initTracker>> | null = null;
 let stream: MediaStream | null = null;
 let running = false;
@@ -83,6 +91,7 @@ function resetFrameClock(): void {
 }
 
 function showExercise(): void {
+  historyPanel.hidden = true;
   results.hidden = true;
   stage.hidden = false;
   panel.hidden = false;
@@ -95,21 +104,19 @@ function resumeExercise(): void {
   showExercise();
   resetFrameClock();
   if (program.phase !== "intro") program = beginProgram(program);
+  persist(performance.now(), true);
   pauseButton.textContent = "Пауза";
   if (!running) start.disabled = starting;
   setHint(running ? "Раскрой ладонь перед продолжением" : "Нажми «Начать тренировку»");
 }
 
-function rememberFinal(): void {
-  if (program.session.status !== "in_progress" && !finalizedSessions.some(s => s.id === program.session.id)) {
-    finalizedSessions.push(program.session);
-  }
-}
+function rememberFinal(): void { persist(performance.now(), true); }
 
 function newTraining(): void {
   stopCamera();
   rememberFinal();
   program = createProgram();
+  sessionStarted = false;
   mode = "pinch";
   handChoice.disabled = false;
   showExercise();
@@ -128,6 +135,7 @@ function finishTraining(): void {
 }
 
 function showResults(): void {
+  historyPanel.hidden = true;
   if (program.session.status === "in_progress") program = pauseProgram(program, "results");
   resetFrameClock();
   stage.hidden = true;
@@ -135,6 +143,7 @@ function showResults(): void {
   results.hidden = false;
   resultsButton.setAttribute("aria-expanded", "true");
   resultsButton.textContent = program.session.status === "in_progress" ? "К упражнениям" : "Итоги";
+  persist(performance.now(), true);
   renderResults(results, program.session, resumeExercise, finishTraining, newTraining);
 }
 
@@ -144,6 +153,7 @@ function setDebugVisibility(): void {
 }
 
 function stopCamera(): void {
+  persist(performance.now(), true);
   generation++;
   running = false;
   cancelAnimationFrame(requestId);
@@ -202,6 +212,7 @@ function processFrame(timestampMs: number): void {
     timestampMs, wallTime: new Date().toISOString(), geometry: g, fullHand,
     pinch: tracked.reading, palm: g ? mirrorPoint(g.palmCenter(), width) : null, target,
   });
+  persist(timestampMs);
   if (g && program.success && program.success !== previousSuccess && program.success.exercise === "pinch") {
     sparkFlight = { at: program.success.at, action: program.success.reps,
       from: mirroredPinchPoint(g.pts, width) };
@@ -277,6 +288,8 @@ start.addEventListener("click", async () => {
     program = { ...program, session: { ...program.session, hand: hand === "left" || hand === "right" ? hand : "unspecified" } };
   }
   handChoice.disabled = true;
+  sessionStarted = true;
+  persist(performance.now(), true);
   showExercise();
   if (!navigator.mediaDevices?.getUserMedia) {
     setHint("Камера доступна только через HTTPS или localhost в поддерживаемом браузере.", true);
@@ -329,6 +342,7 @@ pauseButton.addEventListener("click", () => {
     pauseButton.textContent = "Продолжить";
     setHint("Тренировка на паузе. Нажми «Продолжить»");
   }
+  persist(performance.now(), true);
 });
 
 dump.addEventListener("click", () => {
@@ -350,9 +364,31 @@ document.addEventListener("visibilitychange", () => {
     setHint("Камера остановлена. Нажмите «Начать тренировку» для продолжения.");
   }
 });
-window.addEventListener("pagehide", stopCamera);
+window.addEventListener("pagehide", () => {
+  program = pauseProgram(program, "visibility");
+  stopCamera();
+});
 if (import.meta.hot) import.meta.hot.dispose(stopCamera);
 setDebugVisibility();
 dump.disabled = true;
 updateScore();
 setHint("Выбери руку и нажми «Начать тренировку»");
+
+historyButton.addEventListener("click", () => {
+  if (program.session.status === "in_progress" && sessionStarted) program = pauseProgram(program, "results");
+  stopCamera();
+  stage.hidden = true;
+  panel.hidden = true;
+  results.hidden = true;
+  historyPanel.hidden = false;
+  renderHistory(historyPanel, store, () => sessionStarted ? showResults() : showExercise());
+});
+storageNotice.textContent = store.notice;
+if (store.data.current) {
+  handChoice.value = program.session.hand;
+  handChoice.disabled = true;
+  showResults();
+  const interrupted = document.createElement("p");
+  interrupted.textContent = "Тренировка прервана перезагрузкой. Продолжи с повторной подготовкой руки или заверши с текущим результатом. Пропущенное время не учитывается.";
+  results.append(interrupted);
+}

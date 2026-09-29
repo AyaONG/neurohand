@@ -13,10 +13,12 @@
       <button data-mode="pinch" class="active">Пинцет</button>
       <button data-mode="grip">Эспандер</button>
       <button data-mode="hold">Перенос</button>
+      <button id="btn-history" aria-controls="history">Мой прогресс</button>
       <button id="btn-results" aria-controls="results" aria-expanded="false">Итоги</button>
     </nav>
   </header>
   <main>
+    <p id="storage-notice" role="status" aria-live="polite"></p>
     <p id="program-status">5 пинцетов → 5 сжатий → 3 цели по 2 секунды</p>
     <section id="stage">
       <h2 id="task-title">Собери 5 огоньков</h2>
@@ -37,6 +39,7 @@
       <button id="btn-dump" hidden>Dump</button>
     </section>
     <section id="results" aria-label="Текущие итоги тренировки" hidden></section>
+    <section id="history" aria-label="Мой прогресс" hidden></section>
   </main>
   <script type="module" src="/src/main.ts"></script>
 </body>

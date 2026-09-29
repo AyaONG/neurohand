@@ -30,3 +30,10 @@ button:focus-visible { outline: 3px solid #38bdf8; outline-offset: 3px; }
   header { flex-wrap: wrap; justify-content: center; gap: 12px; padding: 12px; }
   nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 }
+#history { max-width: 1000px; margin: 0 auto; padding: 16px; }
+#history button { margin: 4px; }
+.table-scroll { overflow-x: auto; margin: 16px 0; }
+table { border-collapse: collapse; width: 100%; }
+th, td { padding: 10px; border-bottom: 1px solid #475569; text-align: left; }
+#storage-notice { max-width: 800px; margin: 12px auto; color: #fde68a; }
+#storage-notice:empty { display: none; }

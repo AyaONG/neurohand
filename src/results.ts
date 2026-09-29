@@ -20,7 +20,7 @@ export function renderResults(container: HTMLElement, session: Session, onResume
   heading.textContent = session.status === "completed" ? "Тренировка завершена" : session.status === "stopped" ? "Тренировка остановлена" : "Текущие итоги";
   heading.tabIndex = -1;
   const description = document.createElement("p");
-  description.textContent = session.status === "completed" ? "Выполнено 3 из 3 заданий." : session.status === "stopped" ? "Сохранён выполненный объём в текущей странице." : model.empty
+  description.textContent = session.status === "completed" ? "Выполнено 3 из 3 заданий." : session.status === "stopped" ? "Тренировка остановлена. Сохранён выполненный объём." : model.empty
     ? "Движений пока нет. Начни с пинцета: раскрой ладонь, затем соедини большой и указательный пальцы."
     : "Тренировка на паузе. Результаты сохранятся при продолжении.";
   const list = document.createElement("ul");
@@ -40,7 +40,7 @@ export function renderResults(container: HTMLElement, session: Session, onResume
   prompts.textContent = (["pinch", "grip", "hold"] as const).map(id => `${labels[id]} — эпизоды подсказок: ${session.exercises[id].started ? Object.values(session.exercises[id].promptEpisodes).reduce((a, b) => a + b, 0) : "Не начато"}`).join(". ");
   const notice = document.createElement("p");
   notice.className = "results-note";
-  notice.textContent = "Текущие результаты доступны до перезагрузки страницы.";
+  notice.textContent = "История хранится в этом браузере на этом адресе. Синхронизации между устройствами нет.";
   const disclaimer = document.createElement("p");
   disclaimer.className = "results-note";
   disclaimer.textContent = "Тренажёр не является медицинским устройством. Результаты описывают выполнение заданий.";
@@ -52,6 +52,13 @@ export function renderResults(container: HTMLElement, session: Session, onResume
     finish.addEventListener("click", onFinish);
     container.append(finish);
   }
-  container.append(notice, disclaimer);
+  const details = document.createElement("ul");
+  for (const id of ["pinch", "grip", "hold"] as const) {
+    const item = document.createElement("li");
+    const result = session.exercises[id];
+    item.textContent = `${labels[id]} — ${result.started ? `активное время: ${(result.activeMs / 1000).toFixed(1)} с` : "Не начато"}`;
+    details.append(item);
+  }
+  container.append(details, notice, disclaimer);
   heading.focus();
 }

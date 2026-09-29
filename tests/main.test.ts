@@ -16,7 +16,7 @@ vi.mock("../src/draw", () => ({
 vi.mock("../src/debug", () => ({ updateDebug: vi.fn(), dumpCapture: mocks.dump }));
 
 // Minimal DOM adapter: tests the real app event handlers and session/FSM wiring.
-// This is simulated input, not a browser/camera check. No storage is touched.
+// This is simulated input, not a browser/camera check. Storage is isolated in memory.
 class Element {
   id = "";
   hidden = false;
@@ -51,8 +51,13 @@ let video: Element & { videoWidth: number; videoHeight: number; readyState: numb
 let nextFrame: FrameRequestCallback | null;
 let time: number;
 
-async function setup(search = "") {
-  elements = Object.fromEntries(["video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status"]
+function memoryStorage() {
+  const values = new Map<string, string>();
+  return { getItem: (key: string) => values.get(key) ?? null,
+    setItem: vi.fn((key: string, value: string) => { values.set(key, value); }) };
+}
+async function setup(search = "", storage = memoryStorage()) {
+  elements = Object.fromEntries(["video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice"]
     .map(id => [id, Object.assign(new Element(), { id })]));
   elements.results.hidden = true;
   modes = Object.fromEntries(["pinch", "grip", "hold"].map(mode => [mode, Object.assign(new Element(), { dataset: { mode } })]));
@@ -63,7 +68,7 @@ async function setup(search = "") {
     querySelector: (selector: string) => elements[selector.slice(1)], createElement: () => new Element(),
   });
   vi.stubGlobal("document", document);
-  vi.stubGlobal("window", new Element());
+  vi.stubGlobal("window", Object.assign(new Element(), { localStorage: storage }));
   vi.stubGlobal("location", { search });
   vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn() } });
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { nextFrame = callback; return 1; });
@@ -251,4 +256,79 @@ describe("app wiring with simulated camera frames", () => {
     expect(elements.debug.hidden).toBe(false);
     expect(elements["btn-dump"].hidden).toBe(false);
   });
+});
+
+
+describe("persistent progress through real handlers with isolated storage", () => {
+  it("restores a paused snapshot after reload, resumes without duplicate actions and archives once", async () => {
+    const memory = memoryStorage();
+    await setup("", memory);
+    Object.assign(elements["hand-choice"], { value: "left" });
+    await elements["btn-start"].fire("click");
+    prepare(); pinch();
+    await elements["btn-results"].fire("click");
+    const before = JSON.parse(memory.getItem("neurohand:progress:v2")!).current;
+    expect(before.exercises.pinch.reps).toBe(1);
+    // Reload modules and DOM, retaining only this test's isolated storage.
+    vi.resetModules(); nextFrame = null;
+    await setup("", memory);
+    expect(nextFrame).toBeNull();
+    expect(elements.results.hidden).toBe(false);
+    expect(elements.results.children.at(-1)?.textContent).toContain("прервана перезагрузкой");
+    expect(JSON.parse(memory.getItem("neurohand:progress:v2")!).current.exercises.pinch.activeMs).toBe(before.exercises.pinch.activeMs);
+    await elements.results.children.find(child => child.id === "btn-resume")!.fire("click");
+    await elements["btn-start"].fire("click");
+    for (let i = 0; i < 150; i++) frame(fixture("pinch_closed"));
+    expect(elements.score.textContent).toBe("Пинцет: 1 / 5");
+    prepare(); pinch();
+    expect(elements.score.textContent).toBe("Пинцет: 2 / 5");
+    await elements["btn-results"].fire("click");
+    await elements.results.children.find(child => child.id === "btn-finish")!.fire("click");
+    await elements["btn-results"].fire("click");
+    const saved = JSON.parse(memory.getItem("neurohand:progress:v2")!);
+    expect(saved.current).toBeNull(); expect(saved.history).toHaveLength(1);
+    expect(saved.history[0].status).toBe("stopped"); expect(saved.history[0].id).toBe(before.id);
+    expect(saved.history[0].exercises.pinch.reps).toBe(2);
+    await elements.results.children.find(child => child.id === "btn-new")!.fire("click");
+    await elements["btn-start"].fire("click");
+    expect(JSON.parse(memory.getItem("neurohand:progress:v2")!).history).toEqual(saved.history);
+  });
+
+  it("pauses for history, displays empty and populated tables, and details never start camera", async () => {
+    await setup();
+    await elements["btn-history"].fire("click");
+    const text = (node: Element): string => node.textContent + node.children.map(text).join(" ");
+    expect(elements.history.hidden).toBe(false);
+    expect(text(elements.history)).toContain("Завершённых тренировок пока нет");
+    expect(mocks.camera).not.toHaveBeenCalled();
+    await elements.history.children.find(child => child.id === "btn-history-back")!.fire("click");
+    await elements["btn-start"].fire("click"); prepare(); pinch();
+    await elements["btn-history"].fire("click");
+    expect(nextFrame).toBeNull();
+    expect(text(elements.history)).toContain("Текущая тренировка");
+    await elements.history.children.find(child => child.id === "btn-history-back")!.fire("click");
+    await elements.results.children.find(child => child.id === "btn-finish")!.fire("click");
+    await elements["btn-history"].fire("click");
+    expect(text(elements.history)).toContain("Последняя тренировка");
+    expect(text(elements.history)).toContain("Остановлена");
+    expect(text(elements.history)).toContain("1/5");
+    const cameras = mocks.camera.mock.calls.length;
+    await elements.history.children.find(child => child.textContent.startsWith("Детали:"))!.fire("click");
+    expect(mocks.camera.mock.calls.length).toBe(cameras);
+    expect(text(elements.history)).toContain("Пинцет: 1 / 5");
+  });
+});
+
+
+it("shows storage failure while keeping the training and its history usable in memory", async () => {
+  const memory = memoryStorage();
+  memory.setItem.mockImplementation(() => { throw new Error("QuotaExceededError"); });
+  await setup("", memory);
+  await elements["btn-start"].fire("click"); prepare(); pinch();
+  expect(elements["storage-notice"].textContent).toContain("история не сохраняется");
+  expect(elements.score.textContent).toBe("Пинцет: 1 / 5");
+  await elements["btn-results"].fire("click");
+  await elements.results.children.find(child => child.id === "btn-finish")!.fire("click");
+  await elements["btn-history"].fire("click");
+  expect(elements.history.children.some(child => child.textContent === "Последняя тренировка")).toBe(true);
 });
