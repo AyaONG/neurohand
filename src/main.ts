@@ -5,6 +5,9 @@ import { calibrate, gripOpenness, readGrip, stepPinchTracking, type PinchTrackin
 import { createTarget, HOLD_TARGET_MS, initialFsm, step, stepHold, type HoldState, type Target } from "./fsm";
 import { drawHandOverlay, mirrorPoint } from "./draw";
 import { dumpCapture, updateDebug, type Capture } from "./debug";
+import { createSession, pauseSession, recordRep, resumeSession, startExercise } from "./session";
+import { getFeedback, type SuccessFeedback } from "./feedback";
+import { renderResults } from "./results";
 import type { Calibration, ExerciseId, FsmState, Reading } from "./types";
 
 const video = document.querySelector<HTMLVideoElement>("#video")!;
@@ -18,6 +21,9 @@ const start = document.querySelector<HTMLButtonElement>("#btn-start")!;
 const calibrateButton = document.querySelector<HTMLButtonElement>("#btn-calibrate")!;
 const dump = document.querySelector<HTMLButtonElement>("#btn-dump")!;
 const tabs = document.querySelector<HTMLElement>("#tabs")!;
+const panel = document.querySelector<HTMLElement>("#panel")!;
+const results = document.querySelector<HTMLElement>("#results")!;
+const resultsButton = document.querySelector<HTMLButtonElement>("#btn-results")!;
 const labels: Record<ExerciseId, string> = { pinch: "Пинцет", grip: "Эспандер", hold: "Перенос" };
 
 let mode: ExerciseId = "pinch";
@@ -29,7 +35,9 @@ let requestId = 0;
 let lastVideoTime = -1;
 let lastFrameTimestamp: number | null = null;
 let fps = 0;
-let debugEnabled = true;
+let debugEnabled = new URLSearchParams(location.search).get("debug") === "1";
+let session = createSession();
+let successFeedback: SuccessFeedback | null = null;
 let fsm: FsmState = { ...initialFsm };
 let hold: HoldState = { holdMs: 0, reps: 0 };
 let target: Target | null = null;
@@ -40,9 +48,16 @@ let calibrationStart: number | null = null;
 let calibrationSamples: HandGeometry[] = [];
 let capture: Capture | null = null;
 
-function setHint(message: string, error = false): void {
-  hint.textContent = message;
-  for (const element of [hint, score, debug]) element.classList.toggle("error", error);
+function setHint(message: string, error = false, celebrating = false): void {
+  // aria-live should announce changed states, not each camera frame.
+  if (hint.textContent !== message) hint.textContent = message;
+  hint.classList.toggle("error", error);
+  hint.classList.toggle("success", celebrating);
+}
+
+function updateScore(): void {
+  const text = `${labels[mode]}: ${session.exercises[mode].reps}`;
+  if (score.textContent !== text) score.textContent = text;
 }
 
 function resetTracking(): void {
@@ -50,6 +65,49 @@ function resetTracking(): void {
   lastHoldTimestamp = null;
   capture = null;
   dump.disabled = true;
+  successFeedback = null;
+}
+
+function resetExerciseState(): void {
+  fsm = { ...initialFsm, reps: session.exercises[mode].reps };
+  hold = { holdMs: 0, reps: session.exercises.hold.reps };
+  lastFrameTimestamp = null;
+  lastVideoTime = -1;
+  calibrationStart = null;
+  calibrationSamples = [];
+  calibrateButton.disabled = !running;
+  resetTracking();
+}
+
+function resumeExercise(): void {
+  session = resumeSession(session);
+  resetExerciseState();
+  results.hidden = true;
+  stage.hidden = false;
+  panel.hidden = false;
+  tabs.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach(button => { button.disabled = false; });
+  resultsButton.setAttribute("aria-expanded", "false");
+  resultsButton.textContent = "Итоги";
+  updateScore();
+  setHint(running ? "Раскрой ладонь перед следующим движением" : "Нажмите «Включить камеру»");
+  tabs.querySelector<HTMLButtonElement>(`[data-mode="${mode}"]`)?.focus();
+}
+
+function showResults(): void {
+  session = pauseSession(session);
+  resetExerciseState();
+  stage.hidden = true;
+  panel.hidden = true;
+  results.hidden = false;
+  tabs.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach(button => { button.disabled = true; });
+  resultsButton.setAttribute("aria-expanded", "true");
+  resultsButton.textContent = "К упражнениям";
+  renderResults(results, session, resumeExercise);
+}
+
+function setDebugVisibility(): void {
+  debug.hidden = !debugEnabled;
+  dump.hidden = !debugEnabled;
 }
 
 function stopCamera(): void {
@@ -83,6 +141,8 @@ function cameraError(error: unknown): string {
 }
 
 function processFrame(timestampMs: number): void {
+  // Results are a paused snapshot: no detection, timers, or counting behind it.
+  if (session.paused) return;
   const width = video.videoWidth;
   const height = video.videoHeight;
   if (canvas.width !== width || canvas.height !== height) {
@@ -145,11 +205,24 @@ function processFrame(timestampMs: number): void {
       if (g) message = "Удерживайте центр ладони в круге 2 секунды";
     }
   }
-  setHint(reading?.error?.message ?? message, !!reading?.error);
-  score.textContent = `${labels[mode]}: ${mode === "hold" ? hold.reps : fsm.reps}`;
+  if (reading && g && !isCalibrating) {
+    session = startExercise(session, mode);
+    const action = mode === "hold" ? hold.reps : fsm.reps;
+    const next = recordRep(session, { sessionId: session.id, exercise: mode, action });
+    if (next !== session) successFeedback = { exercise: mode, reps: action, at: timestampMs };
+    session = next;
+  }
+  // A new error/lost hand cancels the old celebration instead of replaying it.
+  if (!g || reading?.error) successFeedback = null;
+  const feedback = getFeedback({
+    exercise: mode, timestampMs, visible: !!g, error: reading?.error ?? null,
+    phase: fsm.phase, success: successFeedback, instruction: message,
+  });
+  setHint(feedback.text, feedback.error, feedback.celebrating);
+  updateScore();
   const missingMs = g || tracking.lastValidTimestamp === null ? 0 : timestampMs - tracking.lastValidTimestamp;
   drawHandOverlay(ctx, g ? landmarks : null, reading, {
-    enabled: debugEnabled, fps, handSizeNorm: g?.handSizeNorm ?? null,
+    enabled: debugEnabled, success: feedback.success, fps, handSizeNorm: g?.handSizeNorm ?? null,
     nullTimeoutMs: DEFAULT_CONFIG.NULL_TIMEOUT_MS, missingMs,
     gripOpenness: mode === "grip" && g && cal ? gripOpenness(g, cal) : undefined,
     target: mode === "hold" && target ? { ...target, progress: hold.holdMs / HOLD_TARGET_MS } : undefined,
@@ -182,7 +255,7 @@ function loop(timestampMs: number): void {
 }
 
 start.addEventListener("click", async () => {
-  if (running || start.disabled) return;
+  if (running || start.disabled || session.paused) return;
   if (!navigator.mediaDevices?.getUserMedia) {
     setHint("Камера доступна только через HTTPS или localhost в поддерживаемом браузере.", true);
     return;
@@ -213,20 +286,19 @@ start.addEventListener("click", async () => {
 });
 
 tabs.addEventListener("click", event => {
+  if (session.paused) return;
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-mode]");
   const selected = button?.dataset.mode;
   if (selected !== "pinch" && selected !== "grip" && selected !== "hold") return;
   mode = selected;
-  fsm = { ...initialFsm };
-  hold = { holdMs: 0, reps: 0 };
-  resetTracking();
+  resetExerciseState();
   tabs.querySelectorAll("[data-mode]").forEach(tab => tab.classList.toggle("active", tab === button));
-  score.textContent = `${labels[mode]}: 0`;
+  updateScore();
   setHint(running ? "Покажите ладонь камере" : "Нажмите «Включить камеру»");
 });
 
 calibrateButton.addEventListener("click", () => {
-  if (!running || calibrationStart !== null) return;
+  if (!running || calibrationStart !== null || session.paused) return;
   calibrationStart = performance.now();
   calibrationSamples = [];
   calibrateButton.disabled = true;
@@ -236,12 +308,16 @@ calibrateButton.addEventListener("click", () => {
 });
 
 dump.addEventListener("click", () => {
-  if (capture) dumpCapture(capture);
+  if (debugEnabled && capture && !session.paused) dumpCapture(capture);
+});
+resultsButton.addEventListener("click", () => {
+  if (results.hidden) showResults();
+  else resumeExercise();
 });
 document.addEventListener("keydown", event => {
   if (event.code !== "KeyD" || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
   debugEnabled = !debugEnabled;
-  debug.hidden = !debugEnabled;
+  setDebugVisibility();
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden && (running || start.disabled)) {
@@ -251,7 +327,7 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("pagehide", stopCamera);
 if (import.meta.hot) import.meta.hot.dispose(stopCamera);
-debug.hidden = false;
+setDebugVisibility();
 dump.disabled = true;
-score.textContent = "Пинцет: 0";
+updateScore();
 setHint("Нажмите «Включить камеру»");

@@ -3,6 +3,7 @@ import type { Landmark, Point, Reading } from "./types";
 
 export type DebugOptions = {
   enabled: boolean;
+  success?: boolean;
   fps: number;
   handSizeNorm: number | null;
   nullTimeoutMs: number;
@@ -51,13 +52,14 @@ export function drawHandOverlay(
       ctx.stroke(arc);
     }
     if (landmarks?.length === 21) {
+      const handColor = config.success && !reading?.error ? "#22c55e" : "#38bdf8";
       const pts = landmarks.map(p => mirrorPoint({ x: p.x * width, y: p.y * height }, width));
       const bones = new Path2D();
       for (const { start, end } of HandLandmarker.HAND_CONNECTIONS) {
         bones.moveTo(pts[start].x, pts[start].y);
         bones.lineTo(pts[end].x, pts[end].y);
       }
-      ctx.strokeStyle = "#38bdf8";
+      ctx.strokeStyle = handColor;
       ctx.stroke(bones);
       const errors = new Set(reading?.error?.joints ?? []);
       // Error joints are drawn last so adjacent normal points cannot cover them.
@@ -66,7 +68,7 @@ export function drawHandOverlay(
           if (errors.has(i) !== isError) return;
           const dot = new Path2D();
           dot.arc(p.x, p.y, isError ? 11 : 5, 0, Math.PI * 2);
-          ctx.fillStyle = isError ? "#ef4444" : "#38bdf8";
+          ctx.fillStyle = isError ? "#ef4444" : handColor;
           ctx.fill(dot);
         });
       }

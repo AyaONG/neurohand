@@ -13,7 +13,7 @@
       <button data-mode="pinch" class="active">Пинцет</button>
       <button data-mode="grip">Эспандер</button>
       <button data-mode="hold">Перенос</button>
-      <button id="btn-results">Итоги</button>
+      <button id="btn-results" aria-controls="results" aria-expanded="false">Итоги</button>
     </nav>
   </header>
   <main>
@@ -21,15 +21,15 @@
       <video id="video" playsinline muted></video>
       <canvas id="canvas"></canvas>
       <div id="score"></div>
-      <div id="hint"></div>
+      <div id="hint" role="status" aria-live="polite" aria-atomic="true"></div>
       <pre id="debug" hidden></pre>
     </section>
     <section id="panel">
       <button id="btn-start">Включить камеру</button>
       <button id="btn-calibrate" disabled>Калибровка</button>
-      <button id="btn-dump">Dump</button>
+      <button id="btn-dump" hidden>Dump</button>
     </section>
-    <section id="results" hidden></section>
+    <section id="results" aria-label="Текущие итоги тренировки" hidden></section>
   </main>
   <script type="module" src="/src/main.ts"></script>
 </body>
