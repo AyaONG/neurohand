@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NeuroHand</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <header>
+    <h1>NeuroHand</h1>
+    <nav id="tabs">
+      <button data-mode="pinch" class="active">Пинцет</button>
+      <button data-mode="grip">Эспандер</button>
+      <button data-mode="hold">Перенос</button>
+      <button id="btn-results">Итоги</button>
+    </nav>
+  </header>
+  <main>
+    <section id="stage">
+      <video id="video" playsinline muted></video>
+      <canvas id="canvas"></canvas>
+      <div id="score"></div>
+      <div id="hint"></div>
+      <pre id="debug" hidden></pre>
+    </section>
+    <section id="panel">
+      <button id="btn-start">Включить камеру</button>
+      <button id="btn-calibrate" disabled>Калибровка</button>
+      <button id="btn-dump">Dump</button>
+    </section>
+    <section id="results" hidden></section>
+  </main>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
