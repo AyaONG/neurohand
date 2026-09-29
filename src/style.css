@@ -22,7 +22,7 @@ p { overflow-wrap: anywhere; }
 #home-title { font-size: clamp(36px, 6vw, 62px); margin: 18px 0; }
 .eyebrow { font-size: 13px; text-transform: uppercase; letter-spacing: .1em; font-weight: 650; color: #7dd3fc; }
 .lead { max-width: 660px; margin: 0 auto 30px; font-size: 19px; color: #c1cfe3; }
-.exercise-previews { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; text-align: left; }
+.exercise-previews { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; text-align: left; }
 .exercise-previews article { padding: 24px; background: #121e30; border: 1px solid #304158; border-radius: 20px; }
 .exercise-previews h3 { margin: 8px 0; }
 .exercise-previews p:last-child { color: #c1cfe3; margin-bottom: 0; }
@@ -87,3 +87,14 @@ td { min-width: 90px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+.training-choice { display: grid; gap: 10px; max-width: 580px; margin: 24px auto; }
+#pair-options { border: 1px solid #50627c; border-radius: 14px; padding: 20px; margin: 16px auto; max-width: 760px; text-align: left; }
+#pair-options label { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; margin-right: 20px; }
+#pair-options input { width: 22px; height: 22px; accent-color: #fcd34d; }
+#pair-options input:focus-visible { outline: 3px solid #7dd3fc; outline-offset: 4px; }
+#pair-guide { width: 120px; height: 100px; display: block; margin: 8px auto; fill: none; stroke: #7dd3fc; stroke-width: 3; }
+#pair-guide circle { fill: #182539; }
+#pair-guide circle.selected { fill: #fcd34d; stroke: #fff; }
+
+.pair-results { grid-template-columns: 1fr; }

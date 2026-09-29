@@ -1,3 +1,6 @@
+import { createOppositionSession } from './session';
+import { currentPair, FINGER_TIPS, FINGER_NAMES, pairCounts, pairTask } from './opposition';
+import { finishOppositionAttempt, skipOppositionPair } from './opposition-program';
 // Точка входа NeuroHand: связывает модули, цикл кадров и интерфейс.
 import { initCamera, initTracker } from "./camera";
 import { DEFAULT_CONFIG, HandGeometry } from "./geometry";
@@ -12,7 +15,7 @@ import { renderHistory } from "./history";
 import { spokenHint } from "./presentation";
 import { getFeedback } from "./feedback";
 import { renderResults } from "./results";
-import type { ExerciseId } from "./types";
+import type { BasicExerciseId, ExerciseId } from "./types";
 
 const video = document.querySelector<HTMLVideoElement>("#video")!;
 const canvas = document.querySelector<HTMLCanvasElement>("#canvas")!;
@@ -38,7 +41,19 @@ const home = document.querySelector<HTMLElement>("#home")!;
 const announcements = document.querySelector<HTMLElement>("#announcements")!;
 const cameraPlaceholder = document.querySelector<HTMLElement>("#camera-placeholder")!;
 const handLabel = document.querySelector<HTMLElement>("#hand-label")!;
-const labels: Record<ExerciseId, string> = { pinch: "Пинцет", grip: "Эспандер", hold: "Перенос" };
+const labels: Record<ExerciseId, string> = { pinch: "Пинцет", grip: "Эспандер", hold: "Перенос", opposition: "Найди пару" };
+
+const trainingChoice = document.querySelector<HTMLSelectElement>('#training-choice')!;
+const pairOptions = document.querySelector<HTMLElement>('#pair-options')!;
+const pairChoices = FINGER_TIPS.map(tip => ({ tip, input: document.querySelector<HTMLInputElement>(`#pair-${tip}`)! }));
+const pairGuide = document.querySelector<SVGElement>('#pair-guide')!;
+const finishAttemptButton = document.querySelector<HTMLButtonElement>('#btn-finish-attempt')!;
+const skipPairButton = document.querySelector<HTMLButtonElement>('#btn-skip-pair')!;
+function chooseTraining(): void { pairOptions.hidden = trainingChoice.value !== 'opposition'; }
+trainingChoice.addEventListener('change', chooseTraining);
+document.querySelector<HTMLButtonElement>('#btn-choose-pairs')!.addEventListener('click', () => {
+  trainingChoice.value = 'opposition'; chooseTraining(); trainingChoice.focus();
+});
 
 const historyPanel = document.querySelector<HTMLElement>("#history")!;
 const historyButton = document.querySelector<HTMLButtonElement>("#btn-history")!;
@@ -80,22 +95,39 @@ function setHint(message: string, error = false, celebrating = false): void {
 }
 
 function updateScore(): void {
-  const text = `${labels[mode]}: ${program.session.exercises[mode].reps} / ${program.session.exercises[mode].target}`;
+  const pairs = mode === 'opposition';
+  if (pairs) pairGuide.removeAttribute('hidden'); else pairGuide.setAttribute('hidden', '');
+  taskDescription.style.display = pairs ? 'block' : '';
+  finishAttemptButton.hidden = skipPairButton.hidden = !pairs || !sessionStarted;
+  finishAttemptButton.disabled = !program.session.attempts?.active || program.session.status !== 'in_progress';
+  skipPairButton.disabled = !!program.session.attempts?.active || !!program.session.opposition?.awaitingRelease || program.session.status !== 'in_progress';
+  if (pairs) {
+    const tip = currentPair(program.session), counts = pairCounts(program.session), plan = program.session.opposition!;
+    taskTitle.textContent = `Найди пару · большой + ${FINGER_NAMES[tip]}`;
+    taskDescription.textContent = pairTask(tip);
+    score.textContent = `Задания: ${counts.consumed} / ${plan.sequence.length} · Полностью: ${counts.completed}`;
+    programStatus.textContent = `Пара ${plan.cursor + 1} из ${plan.sequence.length}`;
+    pairGuide.setAttribute('aria-label', pairTask(tip));
+    for (const point of [4, ...FINGER_TIPS]) document.querySelector(`#guide-tip-${point}`)!.classList.toggle('selected', point === 4 || point === tip);
+    tabs.hidden = true;
+    return;
+  }
+  const text = `${labels[mode]}: ${program.session.exercises[mode]!.reps} / ${program.session.exercises[mode]!.target}`;
   if (score.textContent !== text) score.textContent = text;
   const title = program.phase === "preparing" ? "Подготовим ладонь" : SCENES[mode].title;
   if (taskTitle.textContent !== title) taskTitle.textContent = title;
   if (taskDescription.textContent !== SCENES[mode].instruction) taskDescription.textContent = SCENES[mode].instruction;
   tabs.querySelectorAll<HTMLElement>("[data-mode]").forEach(tab => {
     const id = tab.dataset.mode as ExerciseId;
-    const result = program.session.exercises[id];
+    const result = program.session.exercises[id]!;
     const state = result.reps === result.target ? "Готово" : id === mode ? "Сейчас" : "Далее";
-    const text = `${EXERCISES.indexOf(id) + 1}. ${{ pinch: "Огоньки", grip: "Мяч", hold: "Цели" }[id]} · ${state}`;
+    const text = `${EXERCISES.indexOf(id as BasicExerciseId) + 1}. ${{ pinch: "Огоньки", grip: "Мяч", hold: "Цели", opposition: "Пары" }[id]} · ${state}`;
     if (tab.textContent !== text) tab.textContent = text;
     tab.classList.toggle("active", id === mode);
     tab.setAttribute("aria-current", id === mode ? "step" : "false");
   });
   const status = program.phase === "preparing" ? "Подготовка руки"
-    : program.phase === "paused" ? "Тренировка на паузе" : `Шаг ${EXERCISES.indexOf(mode) + 1} из 3`;
+    : program.phase === "paused" ? "Тренировка на паузе" : `Шаг ${EXERCISES.indexOf(mode as BasicExerciseId) + 1} из 3`;
   if (programStatus.textContent !== status) programStatus.textContent = status;
 }
 
@@ -117,7 +149,7 @@ function showExercise(): void {
   results.hidden = true;
   home.hidden = sessionStarted;
   stage.hidden = !sessionStarted;
-  tabs.hidden = !sessionStarted;
+  tabs.hidden = !sessionStarted || mode === "opposition";
   programStatus.hidden = !sessionStarted;
   hint.hidden = false;
   handLabel.hidden = sessionStarted;
@@ -170,6 +202,7 @@ function finishTraining(): void {
 function showResults(): void {
   historyPanel.hidden = true;
   if (program.session.status === "in_progress") program = pauseProgram(program, "results", new Date().toISOString());
+  if (program.session.status !== "in_progress" && running) stopCamera();
   resetFrameClock();
   stage.hidden = true;
   panel.hidden = true;
@@ -244,7 +277,7 @@ function processFrame(timestampMs: number): void {
   } else fps = 0;
   const fullHand = !!landmarks && landmarks.every(p => p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1);
   const g = landmarks && fullHand ? HandGeometry.create(landmarks, width, height) : null;
-  const tracked = stepPinchTracking(tracking, g, timestampMs);
+  const tracked = mode === "opposition" ? { state: tracking, reading: null } : stepPinchTracking(tracking, g, timestampMs);
   tracking = tracked.state;
   const target = width > 0 && height > 0 ? guidedTarget(width, height, program.session.exercises.hold.reps) : null;
   const previousSuccess = program.success;
@@ -270,9 +303,10 @@ function processFrame(timestampMs: number): void {
   const feedback = getFeedback({
     exercise: mode, timestampMs, visible: !!g, error: reading?.error ?? null,
     phase: program.fsm.phase, success: program.success, instruction,
-    target: program.session.exercises[mode].target,
+    target: program.session.exercises[mode]!.target,
   });
   if (program.phase === "paused") setHint(instruction);
+  else if (mode === 'opposition') setHint(feedback.text, feedback.error, feedback.celebrating);
   else if (g && (program.phase === "preparing" || program.phase === "transition")) setHint(instruction);
   else setHint(feedback.text, feedback.error, feedback.celebrating);
   updateScore();
@@ -284,8 +318,9 @@ function processFrame(timestampMs: number): void {
     nullTimeoutMs: DEFAULT_CONFIG.NULL_TIMEOUT_MS, missingMs,
     gripOpenness: mode === "grip" && g && program.calibration ? gripOpenness(g, program.calibration) : undefined,
     target: mode === "hold" && nextTarget ? { ...nextTarget, progress: program.hold.holdMs / HOLD_TARGET_MS } : undefined,
-    scene: {
-      exercise: mode, completed: program.session.exercises[mode].reps, timestampMs, reducedMotion,
+    pairTip: mode === "opposition" ? currentPair(program.session) : undefined,
+    scene: mode === "opposition" ? undefined : {
+      exercise: mode, completed: program.session.exercises[mode]!.reps, timestampMs, reducedMotion,
       pinchPoint: g ? mirroredPinchPoint(g.pts, width) : null,
       palm: g ? mirrorPoint(g.palmCenter(), width) : null,
       openPalm: !!reading?.open,
@@ -320,7 +355,13 @@ function loop(timestampMs: number): void {
 
 start.addEventListener("click", async () => {
   if (running || starting || start.disabled || program.session.status !== "in_progress") return;
+  if (!sessionStarted && trainingChoice.value === 'opposition') {
+    const allowed = pairChoices.filter(choice => choice.input.checked).map(choice => choice.tip);
+    if (!allowed.length) { setHint('Выбери хотя бы одну пару пальцев', true); return; }
+    program = createProgram(createOppositionSession(allowed));
+  }
   program = beginProgram(program);
+  mode = program.session.currentExercise;
   const hand = handChoice.value;
   if (!Object.values(program.session.exercises).some(result => result.started)) {
     program = { ...program, session: { ...program.session, hand: hand === "left" || hand === "right" ? hand : "unspecified" } };
@@ -329,6 +370,7 @@ start.addEventListener("click", async () => {
   sessionStarted = true;
   persist(performance.now(), true);
   showExercise();
+  updateScore();
   if (!navigator.mediaDevices?.getUserMedia) {
     setHint("Камера доступна только через HTTPS или localhost в поддерживаемом браузере.", true);
     return;
@@ -384,6 +426,7 @@ pauseButton.addEventListener("click", () => {
     pauseButton.textContent = "Продолжить";
     setHint("Тренировка на паузе. Нажми «Продолжить»");
   }
+  if (program.phase === 'summary') { rememberFinal(); stopCamera(); showResults(); return; }
   pauseButton.setAttribute("aria-pressed", String(program.phase === "paused"));
   updateScore();
   persist(performance.now(), true);
@@ -444,3 +487,16 @@ if (store.data.current) {
   interrupted.textContent = "Тренировка прервана перезагрузкой. Продолжи с повторной подготовкой руки или заверши с текущим результатом. Пропущенное время не учитывается.";
   results.append(interrupted);
 }
+
+function afterPairAction(): void {
+  persist(performance.now(), true);
+  updateScore();
+  if (program.phase === 'summary') { stopCamera(); showResults(); }
+  else setHint(programInstruction(program, performance.now()));
+}
+finishAttemptButton.addEventListener('click', () => {
+  program = finishOppositionAttempt(program, new Date().toISOString()); afterPairAction();
+});
+skipPairButton.addEventListener('click', () => {
+  program = skipOppositionPair(program, new Date().toISOString()); afterPairAction();
+});

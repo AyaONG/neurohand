@@ -59,3 +59,13 @@ it.each(["pinch", "grip", "hold"] as const)("renders the %s scene without a hand
   expect(fills.some(fill => fill.style === "#ef4444")).toBe(false);
   expect(ctx.restore).toHaveBeenCalledOnce();
 });
+
+it('highlights exactly the thumb and chosen tip at mirrored video coordinates', () => {
+  vi.stubGlobal('Path2D', Path);
+  const lm = Array.from({ length: 21 }, (_, i) => ({ x: 0.2 + i * 0.01, y: 0.5, z: 0 }));
+  const { ctx, fills } = context();
+  drawHandOverlay(ctx as unknown as CanvasRenderingContext2D, lm, null, { ...config, pairTip: 16 });
+  const highlighted = fills.filter(fill => fill.style === 'rgba(251,191,36,.35)');
+  expect(highlighted).toHaveLength(2);
+  expect(highlighted.map(fill => fill.path.commands[0].slice(1, 3))).toEqual([4, 16].map(t => [1280 - lm[t].x * 1280, 360]));
+});

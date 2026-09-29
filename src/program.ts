@@ -1,4 +1,6 @@
-import type { Calibration, ExerciseId, Point, Reading } from "./types";
+import { emptyOppositionState, restartOpposition, stepOppositionProgram, oppositionInstruction, type OppositionState } from './opposition-program';
+import { settleOpposition } from './opposition';
+import type { Calibration, BasicExerciseId, ExerciseId, Point, Reading } from "./types";
 import type { HandGeometry } from "./geometry";
 import { calibrate, DEFAULT_OPEN_CURL, readGrip, PINCH_CLOSE, GRIP_CLOSE_RATIO } from "./validator";
 import { initialTimedFsm, stepTimed, stepHold, type TimedFsm, type HoldState, type Target } from "./fsm";
@@ -8,14 +10,14 @@ import { emptyObserver, observeMovement, type AttemptObserver } from './attempt-
 import type { SuccessFeedback } from "./feedback";
 
 export const PROGRAM_TIMING = { calibrationMs: 2000, minSamples: 20, readyMs: 1000, transitionMs: 3000, maxGapMs: 250, lostPauseMs: 2000 } as const;
-export const EXERCISES: ExerciseId[] = ["pinch", "grip", "hold"];
+export const EXERCISES: BasicExerciseId[] = ["pinch", "grip", "hold"];
 export type ProgramPhase = "intro" | "preparing" | "exercise" | "transition" | "paused" | "summary";
 export type PauseReason = "manual" | "results" | "visibility" | "tracking" | "camera";
 type PromptState = { active: string | null; candidate: string | null; since: number | null; clearSince: number | null };
 const emptyPrompt = (): PromptState => ({ active: null, candidate: null, since: null, clearSince: null });
 
 export type Program = {
-  attemptObserver: AttemptObserver;
+  attemptObserver: AttemptObserver; oppositionState: OppositionState;
   phase: ProgramPhase; session: Session; calibration: Calibration | null;
   pauseReason: PauseReason | null; fsm: TimedFsm; hold: HoldState;
   samples: HandGeometry[]; sampleSince: number | null; readySince: number | null;
@@ -30,7 +32,7 @@ export type ProgramFrame = {
 
 export function createProgram(session = createSession()): Program {
   return {
-    attemptObserver: emptyObserver(), phase: "intro", session, calibration: null, pauseReason: null,
+    oppositionState: emptyOppositionState(), attemptObserver: emptyObserver(), phase: "intro", session, calibration: null, pauseReason: null,
     fsm: initialTimedFsm(), hold: { holdMs: 0, reps: session.exercises.hold.reps },
     samples: [], sampleSince: null, readySince: null, transitionSince: null,
     lastTimestamp: null, lastValidTimestamp: null, missingSince: null, wasActive: false,
@@ -39,7 +41,7 @@ export function createProgram(session = createSession()): Program {
 }
 
 function clearTransient(p: Program): Program {
-  return { ...p, attemptObserver: emptyObserver(), fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise].reps),
+  return { ...p, oppositionState: emptyOppositionState(), attemptObserver: emptyObserver(), fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise]!.reps),
     hold: { holdMs: 0, reps: p.session.exercises.hold.reps }, samples: [], sampleSince: null,
     readySince: null, lastTimestamp: null, lastValidTimestamp: null, missingSince: null,
     wasActive: false, holdEligible: false, holdInterrupted: false, prompt: emptyPrompt(), reading: null, success: null };
@@ -47,14 +49,16 @@ function clearTransient(p: Program): Program {
 
 export function beginProgram(p: Program, reason: "resize" | "pause" = "pause"): Program {
   if (p.session.status !== "in_progress") return p;
-  const currentExercise = EXERCISES.find(id => p.session.exercises[id].reps < p.session.exercises[id].target) ?? "hold";
+  if (p.session.mode === "opposition") return restartOpposition(p, reason);
+  const currentExercise = EXERCISES.find(id => p.session.exercises[id]!.reps < p.session.exercises[id]!.target) ?? "hold";
   return clearTransient({ ...p, phase: "preparing", pauseReason: null,
     session: { ...resumeSession(p.session), attempts: closeActive(p.session.attempts, reason), currentExercise } });
 }
 
 export function pauseProgram(p: Program, reason: PauseReason, wallTime?: string): Program {
   if (p.session.status !== "in_progress") return p;
-  return clearTransient({ ...p, phase: "paused", pauseReason: reason, session: pauseSession({ ...p.session, attempts: closeActive(p.session.attempts, p.missingSince !== null ? "tracking" : reason === "manual" ? "pause" : reason, wallTime) }) });
+  const session = settleOpposition(pauseSession({ ...p.session, attempts: closeActive(p.session.attempts, p.missingSince !== null ? "tracking" : reason === "manual" ? "pause" : reason, wallTime) }));
+  return clearTransient({ ...p, phase: session.status === 'completed' ? 'summary' : 'paused', pauseReason: reason, session });
 }
 
 export function stopProgram(p: Program, wallTime: string): Program {
@@ -80,6 +84,7 @@ function updatePrompt(state: PromptState, code: string | null, now: number): { s
 }
 
 export function stepProgram(previous: Program, frame: ProgramFrame): Program {
+  if (previous.session.mode === "opposition") return stepOppositionProgram(previous, frame);
   const now = frame.timestampMs;
   if (previous.session.status !== "in_progress" || previous.phase === "intro" || !Number.isFinite(now) ||
       (previous.lastTimestamp !== null && now <= previous.lastTimestamp)) return previous;
@@ -102,7 +107,7 @@ export function stepProgram(previous: Program, frame: ProgramFrame): Program {
     p = { ...p, session: { ...p.session, attempts } };
   }
   if (!g || !contiguous) {
-    p = { ...p, attemptObserver: emptyObserver(), fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise].reps),
+    p = { ...p, attemptObserver: emptyObserver(), fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise]!.reps),
       hold: { ...p.hold, holdMs: 0 }, holdEligible: false, wasActive: false,
       holdInterrupted: p.holdInterrupted || p.hold.holdMs > 0,
       samples: [], sampleSince: null, readySince: null, success: null,
@@ -127,21 +132,21 @@ export function stepProgram(previous: Program, frame: ProgramFrame): Program {
     }
     const readySince = p.readySince ?? now;
     if (now - readySince < PROGRAM_TIMING.readyMs) return { ...p, readySince };
-    return { ...p, phase: "exercise", fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise].reps), wasActive: false, readySince: null };
+    return { ...p, phase: "exercise", fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise]!.reps), wasActive: false, readySince: null };
   }
   if (p.phase === "transition") {
     if (now - p.transitionSince! < PROGRAM_TIMING.transitionMs || !open) return p;
-    const index = EXERCISES.indexOf(p.session.currentExercise);
+    const index = EXERCISES.indexOf(p.session.currentExercise as BasicExerciseId);
     const currentExercise = EXERCISES[index + 1];
     return { ...p, phase: "exercise", session: { ...p.session, currentExercise },
-      fsm: initialTimedFsm(p.session.exercises[currentExercise].reps),
+      fsm: initialTimedFsm(p.session.exercises[currentExercise]!.reps),
       attemptObserver: emptyObserver(), holdEligible: false, wasActive: false, success: null, prompt: emptyPrompt(), transitionSince: null };
   }
   if (p.phase !== "exercise") return p;
   const mode = p.session.currentExercise;
   let session = startExercise(p.session, mode);
   const dt = contiguous && previous.wasActive ? gap : 0;
-  let action = session.exercises[mode].reps;
+  let action = session.exercises[mode]!.reps;
   let bestHold = p.hold.holdMs;
   if (mode === "hold") {
     const eligible = !!(grip?.open && frame.palm && frame.target &&
@@ -173,7 +178,7 @@ export function stepProgram(previous: Program, frame: ProgramFrame): Program {
     success: p.reading?.error ? null : p.success };
   if (confirmed) {
     p.success = { exercise: mode, reps: action, at: now };
-    if (action === session.exercises[mode].target) {
+    if (action === session.exercises[mode]!.target) {
       if (mode === "hold") return { ...p, phase: "summary", wasActive: false,
         session: finishSession(recorded, "completed", frame.wallTime) };
       return { ...p, phase: "transition", transitionSince: now, wasActive: false, prompt: emptyPrompt() };
@@ -183,6 +188,7 @@ export function stepProgram(previous: Program, frame: ProgramFrame): Program {
 }
 
 export function programInstruction(p: Program, now: number): string {
+  if (p.session.mode === "opposition") return oppositionInstruction(p);
   if (p.phase === "paused") return p.pauseReason === "tracking"
     ? "Рука потеряна. Покажи открытую ладонь для продолжения" : "Тренировка на паузе. Нажми «Продолжить»";
   if (p.phase === "preparing") {

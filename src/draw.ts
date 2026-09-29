@@ -1,3 +1,4 @@
+import type { FingerTip } from './opposition';
 import { HandLandmarker } from "@mediapipe/tasks-vision";
 import type { Landmark, Point, Reading } from "./types";
 import { sceneModel, type SceneInput } from "./scenes";
@@ -12,6 +13,7 @@ export type DebugOptions = {
   gripOpenness?: number;
   target?: Point & { r: number; progress: number };
   scene?: SceneInput;
+  pairTip?: FingerTip;
 };
 
 export function mirrorPoint(point: Point, width: number): Point {
@@ -147,6 +149,9 @@ export function drawHandOverlay(
       }
       ctx.strokeStyle = handColor;
       ctx.stroke(bones);
+      if (config.pairTip) {
+        for (const tip of [4, config.pairTip]) circle(ctx, pts[tip], Math.max(13, Math.min(width, height) * 0.025), 'rgba(251,191,36,.35)', '#fcd34d');
+      }
       const errors = new Set(reading?.error?.joints ?? []);
       // Error joints are drawn last so adjacent normal points cannot cover them.
       for (const isError of [false, true]) {

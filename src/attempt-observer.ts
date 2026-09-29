@@ -61,7 +61,7 @@ export function observeMovement(session: Session, previous: AttemptObserver, f: 
       attemptId: crypto.randomUUID(), exerciseId: session.currentExercise,
       protocolVersion: session.protocolId, recognizerVersion: session.recognitionVersion,
       hand: session.hand, rulesVersion: R.version,
-      settings: { target: session.exercises[session.currentExercise].target, holdTargetMs: session.settings.holdTargetMs,
+      settings: { target: session.exercises[session.currentExercise]!.target, holdTargetMs: session.settings.holdTargetMs,
         targetRadiusRatio: session.settings.targetRadiusRatio, maxActiveMs: R.maxActiveMs },
       startedAt: s.candidateWall, lastObservedAt: s.candidateWall, endedAt: null, outcome: null, endReason: null,
       activeMs: 0, validTrackingMs: 0, interruptions: { count: 0, durationMs: 0 }, metrics,
@@ -71,7 +71,7 @@ export function observeMovement(session: Session, previous: AttemptObserver, f: 
   }
   const a = log.active!;
   let metrics = a.metrics;
-  if (stable && !f.error) {
+  if (stable && !f.error && metrics.kind !== 'skipped') {
     metrics = metrics.kind === 'hold'
       ? { ...metrics, bestHoldMs: Math.max(metrics.bestHoldMs, f.holdMs), progress: Math.max(metrics.progress, progress) }
       : { ...metrics, bestDistance: Math.min(metrics.bestDistance, distance), progress: Math.max(metrics.progress, progress) };

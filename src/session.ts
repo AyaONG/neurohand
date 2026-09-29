@@ -1,5 +1,6 @@
 import { emptyAttempts, closeActive, type AttemptLog } from './attempts';
-import type { ExerciseId } from "./types";
+import { createOppositionPlan, settleOpposition, PAIR_RULES, type FingerTip, type OppositionPlan } from './opposition';
+import type { BasicExerciseId, ExerciseId } from "./types";
 
 export const GUIDED_TARGETS = { pinch: 5, grip: 5, hold: 3 } as const;
 export type ExerciseResult = {
@@ -13,14 +14,15 @@ export type Session = {
   startedAt: string;
   endedAt: string | null;
   status: "in_progress" | "completed" | "stopped";
-  mode: "guided";
-  protocolId: "guided-v1";
+  mode: "guided" | "opposition";
+  opposition?: OppositionPlan;
+  protocolId: "guided-v1" | "opposition-v1";
   recognitionVersion: string;
   hand: "left" | "right" | "unspecified";
   settings: { pinchTarget: number; gripTarget: number; holdTargetCount: number; holdTargetMs: number; targetRadiusRatio: number };
   currentExercise: ExerciseId;
   paused: boolean;
-  exercises: Record<ExerciseId, ExerciseResult>;
+  exercises: Record<BasicExerciseId, ExerciseResult> & { opposition?: ExerciseResult };
 };
 export type RepConfirmed = {
   sessionId: string;
@@ -43,15 +45,15 @@ export function createSession(id = crypto.randomUUID(), startedAt = new Date().t
 }
 
 export function startExercise(session: Session, exercise: ExerciseId): Session {
-  if (session.status !== "in_progress" || session.paused || session.exercises[exercise].started) return session;
+  if (session.status !== "in_progress" || session.paused || !session.exercises[exercise] || session.exercises[exercise]!.started) return session;
   return { ...session, exercises: { ...session.exercises, [exercise]: { ...session.exercises[exercise], started: true } } };
 }
 
 /** The exercise action number is monotonic across tab changes and resumes. */
 export function recordRep(session: Session, event: RepConfirmed): Session {
-  if (session.status !== "in_progress" || session.paused || event.sessionId !== session.id ||
-      event.action > session.exercises[event.exercise].target ||
-      !Number.isSafeInteger(event.action) || event.action !== session.exercises[event.exercise].reps + 1) return session;
+  if (session.status !== "in_progress" || session.paused || !session.exercises[event.exercise] || event.sessionId !== session.id ||
+      event.action > session.exercises[event.exercise]!.target ||
+      !Number.isSafeInteger(event.action) || event.action !== session.exercises[event.exercise]!.reps + 1) return session;
   return {
     ...session,
     exercises: { ...session.exercises, [event.exercise]: { ...session.exercises[event.exercise], reps: event.action, started: true } },
@@ -69,6 +71,7 @@ export function resumeSession(session: Session): Session {
 export function recordActivity(session: Session, exercise: ExerciseId, dtMs: number, holdMs = 0, promptCode?: string): Session {
   if (session.paused || session.status !== "in_progress") return session;
   const result = session.exercises[exercise];
+  if (!result) return session;
   return { ...session, exercises: { ...session.exercises, [exercise]: {
     ...result,
     activeMs: result.activeMs + (Number.isFinite(dtMs) && dtMs >= 0 && dtMs <= 250 ? dtMs : 0),
@@ -79,6 +82,19 @@ export function recordActivity(session: Session, exercise: ExerciseId, dtMs: num
 
 export function finishSession(session: Session, status: "completed" | "stopped", endedAt: string): Session {
   if (session.status !== "in_progress") return session;
+  if (session.mode === "opposition") {
+    const settled = settleOpposition({ ...session, attempts: closeActive(session.attempts, 'manual', endedAt) });
+    if (settled.status === 'completed') return settled;
+    if (status === 'completed') return session;
+    return { ...settled, status, endedAt, paused: true };
+  }
   if (status === "completed" && !Object.values(session.exercises).every(result => result.reps === result.target)) return session;
   return { ...session, attempts: closeActive(session.attempts, 'manual', endedAt), status, endedAt, paused: true };
+}
+
+export function createOppositionSession(allowed: FingerTip[], id = crypto.randomUUID(), startedAt = new Date().toISOString(), random = Math.random): Session {
+  const base = createSession(id, startedAt), opposition = createOppositionPlan(allowed, random);
+  return { ...base, mode: 'opposition', protocolId: 'opposition-v1', recognitionVersion: PAIR_RULES.recognizerVersion,
+    currentExercise: 'opposition', opposition, exercises: { ...base.exercises,
+      opposition: { reps: 0, target: opposition.sequence.length, started: false, activeMs: 0, promptEpisodes: {}, bestHoldMs: null } } };
 }

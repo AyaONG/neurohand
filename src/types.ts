@@ -1,8 +1,9 @@
 export type Landmark = { x: number; y: number; z: number };
 export type Point = { x: number; y: number };
 
-export type ExerciseId = "pinch" | "grip" | "hold";
-export type ErrorCode = "WRONG_FINGER" | "PINKY_INCOMPLETE";
+export type BasicExerciseId = "pinch" | "grip" | "hold";
+export type ExerciseId = BasicExerciseId | "opposition";
+export type ErrorCode = "WRONG_FINGER" | "PINKY_INCOMPLETE" | "AMBIGUOUS_PAIR";
 
 export type HandError = {
   code: ErrorCode;

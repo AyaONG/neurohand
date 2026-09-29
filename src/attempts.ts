@@ -1,19 +1,21 @@
+import type { FingerTip } from './opposition';
 import type { ExerciseId } from './types';
 
 export type AttemptOutcome = 'completed' | 'partial' | 'incomplete' | 'unscorable' | 'cancelled';
-export type AttemptEndReason = 'confirmed' | 'returned' | 'manual' | 'pause' | 'results' | 'visibility' | 'tracking' | 'camera' | 'reload' | 'resize' | 'timeout';
+export type AttemptEndReason = 'confirmed' | 'returned' | 'manual' | 'pause' | 'results' | 'visibility' | 'tracking' | 'camera' | 'reload' | 'resize' | 'timeout' | 'skip';
 export const ATTEMPT_RULES = Object.freeze({
   version: 'basic-attempts-v1', intentRatio: 0.1, partialRatio: 0.2,
   stableMs: 100, minRange: 0.1, maxGapMs: 250, maxActiveMs: 10000,
   holdMovementRatio: 0.15,
 });
 export type AttemptMetrics =
+  | { kind: 'skipped'; progress: 0 }
   | { kind: 'closure'; startDistance: number; successDistance: number; bestDistance: number; progress: number }
   | { kind: 'hold'; bestHoldMs: number; targetMs: number; progress: number };
 export type Attempt = {
   attemptId: string; exerciseId: ExerciseId; protocolVersion: string; recognizerVersion: string;
   hand: 'left' | 'right' | 'unspecified'; rulesVersion: string;
-  settings: { target: number; holdTargetMs: number; targetRadiusRatio: number; maxActiveMs: number };
+  settings: { target: number; holdTargetMs: number; targetRadiusRatio: number; maxActiveMs: number; pairTip?: FingerTip; sequenceIndex?: number; partialRatio?: number };
   startedAt: string; lastObservedAt: string; endedAt: string | null;
   outcome: AttemptOutcome | null; endReason: AttemptEndReason | null;
   activeMs: number; validTrackingMs: number;
@@ -38,7 +40,7 @@ export function observeAttempt(log: AttemptLog, attemptId: string, dtMs: number,
 }
 
 export function observedOutcome(a: Attempt): AttemptOutcome {
-  if (a.metrics.progress >= ATTEMPT_RULES.partialRatio) return 'partial';
+  if (a.metrics.progress >= (a.exerciseId === 'opposition' ? a.settings.partialRatio! : ATTEMPT_RULES.partialRatio)) return 'partial';
   return a.validTrackingMs >= ATTEMPT_RULES.stableMs ? 'incomplete' : 'cancelled';
 }
 

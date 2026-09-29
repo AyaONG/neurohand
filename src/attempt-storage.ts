@@ -1,3 +1,4 @@
+import { isFingerTip, PAIR_RULES } from './opposition';
 import type { Attempt, AttemptLog, AttemptMetrics } from './attempts';
 
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -8,7 +9,7 @@ const text = (v: unknown): v is string => typeof v === 'string' && v.length > 0 
 
 /** Strict projection: neither arbitrary metrics nor frame/landmark fields reach storage. */
 function parseAttempt(v: unknown, active: boolean): Attempt | null {
-  if (!object(v) || !text(v.attemptId) || !['pinch', 'grip', 'hold'].includes(v.exerciseId) ||
+  if (!object(v) || !text(v.attemptId) || !['pinch', 'grip', 'hold', 'opposition'].includes(v.exerciseId) ||
       !text(v.protocolVersion) || !text(v.recognizerVersion) || !text(v.rulesVersion) ||
       !['left', 'right', 'unspecified'].includes(v.hand) || !date(v.startedAt) || !date(v.lastObservedAt) ||
       Date.parse(v.lastObservedAt) < Date.parse(v.startedAt) || !number(v.activeMs) || !number(v.validTrackingMs) ||
@@ -16,15 +17,22 @@ function parseAttempt(v: unknown, active: boolean): Attempt | null {
       !number(v.interruptions.durationMs) || !object(v.settings) || !object(v.metrics)) return null;
   if (active ? v.outcome !== null || v.endedAt !== null || v.endReason !== null
     : !['completed', 'partial', 'incomplete', 'unscorable', 'cancelled'].includes(v.outcome) ||
-      !['confirmed', 'returned', 'manual', 'pause', 'results', 'visibility', 'tracking', 'camera', 'reload', 'resize', 'timeout'].includes(v.endReason) ||
+      !['confirmed', 'returned', 'manual', 'pause', 'results', 'visibility', 'tracking', 'camera', 'reload', 'resize', 'timeout', 'skip'].includes(v.endReason) ||
       !date(v.endedAt) || Date.parse(v.endedAt) < Date.parse(v.lastObservedAt)) return null;
   if ((v.outcome === 'completed') !== (v.endReason === 'confirmed')) return null;
   const s = v.settings, m = v.metrics;
   if (!count(s.target) || s.target === 0 || !number(s.holdTargetMs) || s.holdTargetMs === 0 ||
       !number(s.targetRadiusRatio) || s.targetRadiusRatio === 0 || s.targetRadiusRatio > 1 ||
       !number(s.maxActiveMs) || s.maxActiveMs === 0 || !number(m.progress) || m.progress > 1) return null;
+  const pair = v.exerciseId === 'opposition';
+  if (pair && (!isFingerTip(s.pairTip) || !count(s.sequenceIndex) || s.partialRatio !== PAIR_RULES.partialRatio ||
+      s.maxActiveMs !== PAIR_RULES.maxActiveMs || v.rulesVersion !== PAIR_RULES.version)) return null;
+  if (v.endReason === 'skip' && (!pair || v.outcome !== 'cancelled' || m.kind !== 'skipped')) return null;
   let metrics: AttemptMetrics;
-  if (v.exerciseId === 'hold') {
+  if (m.kind === 'skipped') {
+    if (!pair || active || v.endReason !== 'skip' || m.progress !== 0 || v.activeMs !== 0 || v.validTrackingMs !== 0) return null;
+    metrics = { kind: 'skipped', progress: 0 };
+  } else if (v.exerciseId === 'hold') {
     if (m.kind !== 'hold' || !number(m.bestHoldMs) || m.targetMs !== s.holdTargetMs || m.bestHoldMs > m.targetMs) return null;
     metrics = { kind: 'hold', bestHoldMs: m.bestHoldMs, targetMs: m.targetMs, progress: m.progress };
   } else {
@@ -34,7 +42,8 @@ function parseAttempt(v: unknown, active: boolean): Attempt | null {
   }
   return { attemptId: v.attemptId, exerciseId: v.exerciseId, protocolVersion: v.protocolVersion,
     recognizerVersion: v.recognizerVersion, hand: v.hand, rulesVersion: v.rulesVersion,
-    settings: { target: s.target, holdTargetMs: s.holdTargetMs, targetRadiusRatio: s.targetRadiusRatio, maxActiveMs: s.maxActiveMs },
+    settings: { target: s.target, holdTargetMs: s.holdTargetMs, targetRadiusRatio: s.targetRadiusRatio, maxActiveMs: s.maxActiveMs,
+      ...(pair ? { pairTip: s.pairTip, sequenceIndex: s.sequenceIndex, partialRatio: s.partialRatio } : {}) },
     startedAt: v.startedAt, lastObservedAt: v.lastObservedAt, endedAt: v.endedAt, outcome: v.outcome, endReason: v.endReason,
     activeMs: v.activeMs, validTrackingMs: v.validTrackingMs,
     interruptions: { count: v.interruptions.count, durationMs: v.interruptions.durationMs }, metrics };

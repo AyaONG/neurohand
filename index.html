@@ -18,14 +18,24 @@
     <p id="storage-notice" role="status" aria-live="polite"></p>
     <section id="home" aria-labelledby="home-title">
       <p class="eyebrow">Движение · внимание · прогресс</p>
-      <h2 id="home-title">Три движения.<br>Одна тренировка.</h2>
+      <h2 id="home-title">Движения кисти.<br>В своём темпе.</h2>
       <p class="lead">Управляй светом и мячом движениями руки перед камерой. Выполни задания и посмотри свой результат.</p>
       <div class="exercise-previews">
         <article><svg viewBox="0 0 180 90" aria-hidden="true"><path d="M35 72V42a10 10 0 0 1 20 0v15M125 72V42a10 10 0 0 1 20 0v15"/><circle class="pinch-demo" cx="65" cy="35" r="10"/><circle cx="110" cy="35" r="10"/><path class="spark-demo" d="m88 18 4 9 9 4-9 4-4 9-4-9-9-4 9-4Z"/></svg><p class="eyebrow">01 · 5 захватов</p><h3>Собери огоньки</h3><p>Соедини большой и указательный пальцы, затем разведи их.</p></article>
         <article><svg viewBox="0 0 180 90" aria-hidden="true"><circle class="grip-demo" cx="90" cy="45" r="30"/><path d="m25 35 12 10-12 10m130-20-12 10 12 10"/></svg><p class="eyebrow">02 · 5 сжатий</p><h3>Сожми мягкий мяч</h3><p>Раскрой ладонь, сожми кисть, затем снова раскрой её.</p></article>
         <article><svg viewBox="0 0 180 90" aria-hidden="true"><circle cx="132" cy="45" r="27" stroke-dasharray="5 5"/><path d="M30 45h64m-9-8 9 8-9 8"/><circle class="hold-demo" cx="40" cy="45" r="10"/></svg><p class="eyebrow">03 · 3 цели по 2 секунды</p><h3>Проведи свет в цель</h3><p>Перемести открытую ладонь в круг и удерживай на месте.</p></article>
+        <article><svg viewBox="0 0 180 90" aria-hidden="true"><path d="M35 75V48l15-8 15 24 10-42 15 2 4 33 16-47 15 5-12 46 20-32 13 8-26 41Z"/><circle cx="50" cy="40" r="7" fill="#fcd34d"/><circle cx="118" cy="12" r="7" fill="#fcd34d"/></svg><p class="eyebrow">Выбранные пары · до 10 секунд на попытку</p><h3>Найди пару</h3><p>Соедини большой палец с выбранным. Частичный результат тоже сохранится.</p><button id="btn-choose-pairs">Выбрать пары</button></article>
       </div>
-      <p class="setup-note">Сядь удобно, направь камеру на руку и двигайся в комфортном диапазоне. Сначала подготовим открытую ладонь.</p>
+      <label class="training-choice">Выбрать занятие <select id="training-choice"><option value="guided">Базовая программа: 5 / 5 / 3</option><option value="opposition">Найди пару</option></select></label>
+      <fieldset id="pair-options" hidden>
+        <legend>С каким пальцем соединять большой? Выбери доступные движения</legend>
+        <label><input type="checkbox" id="pair-8" checked> Указательный</label>
+        <label><input type="checkbox" id="pair-12" checked> Средний</label>
+        <label><input type="checkbox" id="pair-16"> Безымянный</label>
+        <label><input type="checkbox" id="pair-20"> Мизинец</label>
+        <p>По 2 задания на выбранную пару. До 10 секунд движения на попытку; можно закончить раньше или пропустить задание.</p>
+      </fieldset>
+      <p class="setup-note">Сядь удобно, направь камеру на руку и двигайся в комфортном диапазоне. Сначала покажи кисть целиком и подготовь пальцы к выбранному заданию.</p>
     </section>
     <ol id="tabs" class="steps" aria-label="Порядок заданий" hidden>
       <li data-mode="pinch">1. Огоньки · Далее</li><li data-mode="grip">2. Мяч · Далее</li><li data-mode="hold">3. Цели · Далее</li>
@@ -34,6 +44,11 @@
     <section id="stage" hidden>
       <h2 id="task-title" tabindex="-1">Собери 5 огоньков</h2>
       <p id="task-description">Соедини большой и указательный пальцы. Разведи их перед следующим захватом.</p>
+      <svg id="pair-guide" viewBox="0 0 180 150" role="img" aria-label="Схема выбранной пары" hidden>
+        <path d="M65 145v-30L22 89q-10-12 2-18l30 25V32q0-14 14-14t12 14v43V18q0-14 12-14t12 14v57V29q0-14 12-14t12 14v53V50q0-14 12-14t12 14v61l-23 34"/>
+        <circle id="guide-tip-4" cx="24" cy="80" r="9"/><circle id="guide-tip-8" cx="67" cy="23" r="9"/>
+        <circle id="guide-tip-12" cx="92" cy="12" r="9"/><circle id="guide-tip-16" cx="116" cy="24" r="9"/><circle id="guide-tip-20" cx="140" cy="45" r="9"/>
+      </svg>
       <div id="score"></div>
       <div id="viewport">
         <p id="camera-placeholder">Здесь появится изображение камеры</p>
@@ -48,6 +63,8 @@
       <label id="hand-label">Рука для тренировки <select id="hand-choice"><option value="unspecified">Не выбрана</option><option value="left">Левая</option><option value="right">Правая</option></select></label>
       <button id="btn-start">Начать тренировку</button>
       <button id="btn-pause" aria-pressed="false" disabled>Пауза</button>
+      <button id="btn-finish-attempt" hidden>Закончить попытку</button>
+      <button id="btn-skip-pair" hidden>Пропустить пару</button>
       <button id="btn-calibrate" disabled hidden>Калибровка</button>
       <button id="btn-dump" hidden>Dump</button>
     </section>

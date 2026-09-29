@@ -1,13 +1,15 @@
+import { pairCounts } from './opposition';
 import type { Session } from './session';
 import { comparable, type ProgressStore } from './storage';
-import { renderResults } from './results';
+import { renderResults, getResults } from './results';
 
 const ids = ['pinch', 'grip', 'hold'] as const;
 const titles = ['Пинцет', 'Сжатия', 'Цели'];
 const hands = { left: 'Левая', right: 'Правая', unspecified: 'Не выбрана' };
 const statuses = { completed: 'Завершена', stopped: 'Остановлена', in_progress: 'На паузе' };
-const active = (s: Session) => (ids.reduce((n, id) => n + s.exercises[id].activeMs, 0) / 1000).toFixed(1);
+const active = (s: Session) => (Object.values(s.exercises).reduce((n, r) => n + r.activeMs, 0) / 1000).toFixed(1);
 const prompts = (s: Session) => ids.reduce((n, id) => n + Object.values(s.exercises[id].promptEpisodes).reduce((a, b) => a + b, 0), 0);
+const pairText = (s: Session) => s.mode === 'opposition' ? `${pairCounts(s).completed}/${s.opposition!.sequence.length} · частично: ${pairCounts(s).partial}` : '—';
 const stamp = (s: Session) => new Date(s.endedAt ?? s.startedAt).toLocaleString('ru-RU');
 export function localDay(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -49,13 +51,13 @@ export function renderHistory(container: HTMLElement, store: ProgressStore, onBa
   if (!history.length) container.append(element('p', 'Завершённых тренировок пока нет. Начни тренировку — здесь появятся твои результаты.'));
   else {
     const last = history[0];
-    container.append(element('h3', 'Последняя тренировка'), element('p', `${stamp(last)} · ${statuses[last.status]} · ${hands[last.hand]} · ${ids.map((id, i) => `${titles[i]}: ${last.exercises[id].started ? `${last.exercises[id].reps}/${last.exercises[id].target}` : 'Не начато'}`).join(' · ')}`));
+    container.append(element('h3', 'Последняя тренировка'), element('p', `${stamp(last)} · ${statuses[last.status]} · ${hands[last.hand]} · ${getResults(last).rows.map(row => row.text).join(' · ')}`));
   }
   if (store.data.current) container.append(element('p', `Текущая тренировка: ${stamp(store.data.current)}. Результаты доступны через «К тренировке».`));
-  container.append(element('h3', '7 местных календарных дней'), table(['Дата', 'Завершённые', 'Частичные'],
+  container.append(element('h3', '7 местных календарных дней'), table(['Дата', 'Завершённые', 'Остановленные'],
     activity(history).map(d => [d.label, d.completed ? `✓ ${d.completed}` : '—', d.partial ? `◦ ${d.partial}` : '—'])));
-  container.append(element('h3', 'История'), table(['Дата и время', 'Рука', 'Статус', ...titles, 'Активное время, с'],
-    history.map(s => [stamp(s), hands[s.hand], statuses[s.status], ...ids.map(id => s.exercises[id].started ? `${s.exercises[id].reps}/${s.exercises[id].target}` : 'Не начато'), active(s)])));
+  container.append(element('h3', 'История'), table(['Дата и время', 'Рука', 'Статус', ...titles, 'Пары: полностью / задания', 'Активное время, с'],
+    history.map(s => [stamp(s), hands[s.hand], statuses[s.status], ...ids.map(id => s.mode === 'opposition' ? '—' : s.exercises[id].started ? `${s.exercises[id].reps}/${s.exercises[id].target}` : 'Не начато'), pairText(s), active(s)])));
   const details = element('section'); details.setAttribute('aria-label', 'Детали тренировки');
   for (const s of history) {
     const button = element('button', `Детали: ${stamp(s)} · ${hands[s.hand]}`);
@@ -73,9 +75,10 @@ export function renderHistory(container: HTMLElement, store: ProgressStore, onBa
   if (pair) {
     container.append(element('p', `Одинаковые настройки и рука: ${hands[pair[0].hand]}. Значения показаны без оценки улучшения.`),
       table(['Показатель', stamp(pair[0]), stamp(pair[1])], [
-        ...ids.map((id, i) => [titles[i], ...pair.map(s => `${s.exercises[id].reps}/${s.exercises[id].target}`)]),
-        ['Активное время, с', ...pair.map(active)], ['Эпизоды подсказок', ...pair.map(s => String(prompts(s)))],
-        ['Лучшее удержание, с', ...pair.map(s => s.exercises.hold.bestHoldMs === null ? 'Нет данных' : (s.exercises.hold.bestHoldMs / 1000).toFixed(1))],
+        ...(pair[0].mode === 'opposition' ? [['Пары: полностью / задания', ...pair.map(pairText)]] : ids.map((id, i) => [titles[i], ...pair.map(s => `${s.exercises[id].reps}/${s.exercises[id].target}`)])),
+        ['Активное время, с', ...pair.map(active)],
+        ...(pair[0].mode === 'opposition' ? [] : [['Эпизоды подсказок', ...pair.map(s => String(prompts(s)))]]),
+        ...(pair[0].mode === 'opposition' ? [] : [['Лучшее удержание, с', ...pair.map(s => s.exercises.hold.bestHoldMs === null ? 'Нет данных' : (s.exercises.hold.bestHoldMs / 1000).toFixed(1))]]),
       ]));
   } else container.append(element('p', 'Заверши ещё одну тренировку с теми же настройками и явно выбранной рукой для сравнения. С неизвестной рукой сравнение недоступно.'));
   if (store.legacy) container.append(element('h3', 'Запись старой версии'), element('p', 'Дата, рука и настройки неизвестны. В сравнение и календарь не включена. Исходная запись сохранена.'),

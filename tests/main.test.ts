@@ -36,6 +36,7 @@ class Element {
     await Promise.all((this.handlers[name] ?? []).map(callback => callback(event)));
   }
   setAttribute(name: string, value: string) { this.attrs[name] = value; }
+  removeAttribute(name: string) { delete this.attrs[name]; }
   append(...items: Element[]) { this.children.push(...items); }
   replaceChildren(...items: Element[]) { this.children = items; }
   focus() {}
@@ -57,7 +58,7 @@ function memoryStorage() {
     setItem: vi.fn((key: string, value: string) => { values.set(key, value); }) };
 }
 async function setup(search = "", storage = memoryStorage()) {
-  elements = Object.fromEntries(["video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label"]
+  elements = Object.fromEntries(["video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
     .map(id => [id, Object.assign(new Element(), { id })]));
   elements.results.hidden = true;
   modes = Object.fromEntries(["pinch", "grip", "hold"].map(mode => [mode, Object.assign(new Element(), { dataset: { mode } })]));
@@ -377,4 +378,67 @@ it("explains denied camera access and leaves a visible retry action", async () =
   expect(elements["btn-start"].disabled).toBe(false);
   expect(elements["btn-pause"].hidden).toBe(true);
   expect(nextFrame).toBeNull();
+});
+
+function pairPose(tip: number, distance = 0.1) {
+  const lm = fixture('grip_open');
+  lm[4] = { x: lm[tip].x, y: lm[tip].y + distance * 100 / 480, z: 0 };
+  return lm;
+}
+
+it('selects only the middle pair, highlights it, rejects the index and finishes with a partial result through real handlers', async () => {
+  const memory = memoryStorage(); await setup('', memory);
+  await elements['btn-choose-pairs'].fire('click');
+  expect(elements['pair-options'].hidden).toBe(false);
+  Object.assign(elements['pair-12'], { checked: true });
+  await elements['btn-start'].fire('click'); prepare();
+  const initial = JSON.parse(memory.getItem('neurohand:progress:v3')!).current;
+  expect(initial.opposition.allowed).toEqual([12]); expect(initial.opposition.sequence).toEqual([12, 12]);
+  expect(elements['task-title'].textContent).toContain('средний');
+  expect(elements['guide-tip-4'].classes.has('selected')).toBe(true);
+  expect(elements['guide-tip-12'].classes.has('selected')).toBe(true);
+  expect(elements['guide-tip-8'].classes.has('selected')).toBe(false);
+  expect(elements.tabs.hidden).toBe(true);
+  for (let i = 0; i < 30; i++) frame(pairPose(8));
+  expect(elements.hint.textContent).toContain('средний'); expect(elements.hint.classes.has('error')).toBe(true);
+  expect(elements.score.textContent).toContain('Полностью: 0');
+  for (let i = 0; i < 20; i++) frame(pairPose(12));
+  expect(mocks.draw.mock.lastCall![3].pairTip).toBe(12);
+  expect(mocks.draw.mock.lastCall![3].scene).toBeUndefined();
+  expect(elements.score.textContent).toContain('Задания: 1 / 2 · Полностью: 1');
+  for (let i = 0; i < 160; i++) frame(pairPose(12));
+  expect(elements.score.textContent).toContain('Задания: 1 / 2');
+  for (let i = 0; i < 30; i++) frame(fixture('grip_open'));
+  for (let i = 0; i < 20; i++) frame(pairPose(12, 0.4));
+  expect(elements['btn-finish-attempt'].disabled).toBe(false);
+  await elements['btn-finish-attempt'].fire('click');
+  expect(elements.results.children[0].textContent).toBe('Тренировка завершена');
+  expect(elements.results.children[1].textContent).toContain('фактически');
+  expect(elements.results.children[2].children[0].textContent).toContain('1 / 2 полностью · 1 частично');
+  const final = JSON.parse(memory.getItem('neurohand:progress:v3')!).history[0];
+  expect(final.attempts.records.map((a: { outcome: string }) => a.outcome)).toEqual(['completed', 'partial']);
+  expect(nextFrame).toBeNull();
+  await elements['btn-results'].fire('click');
+  expect(JSON.parse(memory.getItem('neurohand:progress:v3')!).history).toHaveLength(1);
+  await elements['btn-history'].fire('click');
+  const text = (node: Element): string => node.textContent + node.children.map(text).join(' ');
+  expect(text(elements.history)).toContain('частично: 1');
+});
+
+it('requires at least one pair before opening the camera and allows explicit skips', async () => {
+  const memory = memoryStorage(); await setup('', memory);
+  await elements['btn-choose-pairs'].fire('click');
+  await elements['btn-start'].fire('click');
+  expect(elements.hint.textContent).toContain('Выбери хотя бы одну пару');
+  expect(mocks.camera).not.toHaveBeenCalled();
+  Object.assign(elements['pair-20'], { checked: true });
+  await elements['btn-start'].fire('click'); prepare();
+  await elements['btn-skip-pair'].fire('click');
+  expect(elements.score.textContent).toContain('Задания: 1 / 2 · Полностью: 0');
+  await elements['btn-skip-pair'].fire('click');
+  expect(elements.score.textContent).toContain('Задания: 1 / 2');
+  for (let i = 0; i < 30; i++) frame(fixture('grip_open'));
+  await elements['btn-skip-pair'].fire('click');
+  expect(elements.results.children[2].children[0].textContent).toContain('2 пропущено');
+  expect(JSON.parse(memory.getItem('neurohand:progress:v3')!).history[0].attempts.records.every((a: { outcome: string }) => a.outcome === 'cancelled')).toBe(true);
 });
