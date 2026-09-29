@@ -1,25 +1,23 @@
-import { HandGeometry } from "./geometry";
+import { HandGeometry, resolveConfig, type Config } from "./geometry";
 import { Reading, Calibration } from "./types";
 
 export const PINCH_CLOSE = 0.28;   // < = сомкнуты
 export const PINCH_OPEN  = 0.50;   // > = разомкнуты
 
-// Normalized distance advantage required to switch the highlighted finger.
-export const WRONG_FINGER_SWITCH_MARGIN = 0.05;
 // Finite fallback only; this does not replace a successful user calibration.
 export const DEFAULT_OPEN_CURL = 1;
 
 export const GRIP_CLOSE_RATIO = 0.5;
 export const GRIP_OPEN_RATIO = 0.85;
 
-export function readPinch(g: HandGeometry, previousWrongJoint: number | null = null): Reading {
+export function readPinch(g: HandGeometry, previousWrongJoint: number | null = null, overrides: Partial<Config> = {}): Reading {
   const good = g.nd(4, 8);
   const wrongTips = [12, 16, 20].filter(t => g.nd(4, t) < PINCH_CLOSE);
 
   if (wrongTips.length && good > PINCH_CLOSE) {
     let selected = wrongTips.reduce((best, tip) => g.nd(4, tip) < g.nd(4, best) ? tip : best);
     if (previousWrongJoint !== null && wrongTips.includes(previousWrongJoint) &&
-        g.nd(4, previousWrongJoint) - g.nd(4, selected) <= WRONG_FINGER_SWITCH_MARGIN) {
+        g.nd(4, previousWrongJoint) - g.nd(4, selected) <= resolveConfig(overrides).HYSTERESIS_DELTA_RATIO) {
       selected = previousWrongJoint;
     }
     return {
@@ -35,6 +33,35 @@ export function readPinch(g: HandGeometry, previousWrongJoint: number | null = n
     open: good > PINCH_OPEN && wrongTips.length === 0,
     closed: good < PINCH_CLOSE,
     error: null,
+  };
+}
+
+/** Caller-owned state: no hidden cross-session memory. */
+export type PinchTrackingState = {
+  previousWrongJoint: number | null;
+  nullFrames: number;
+};
+
+export function stepPinchTracking(
+  state: PinchTrackingState,
+  g: HandGeometry | null,
+  overrides: Partial<Config> = {},
+): { state: PinchTrackingState; reading: Reading | null } {
+  const config = resolveConfig(overrides);
+  if (g === null) {
+    const nullFrames = Math.min(state.nullFrames + 1, config.NULL_FRAME_TIMEOUT);
+    return {
+      state: {
+        previousWrongJoint: nullFrames >= config.NULL_FRAME_TIMEOUT ? null : state.previousWrongJoint,
+        nullFrames,
+      },
+      reading: null,
+    };
+  }
+  const reading = readPinch(g, state.previousWrongJoint, config);
+  return {
+    state: { previousWrongJoint: reading.error?.joints[0] ?? null, nullFrames: 0 },
+    reading,
   };
 }
 

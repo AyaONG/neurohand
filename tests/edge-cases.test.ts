@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { HandGeometry } from "../src/geometry";
-import { calibrate, DEFAULT_OPEN_CURL, readPinch } from "../src/validator";
+import { HandGeometry, DEFAULT_CONFIG, resolveConfig } from "../src/geometry";
+import { calibrate, DEFAULT_OPEN_CURL, readPinch, stepPinchTracking } from "../src/validator";
 import type { Landmark } from "../src/types";
 
 function landmarks(): Landmark[] {
@@ -37,6 +37,11 @@ describe("invalid frames", () => {
   });
 
   it("rejects scales below 15 pixels and accepts the boundary", () => {
+    expect(DEFAULT_CONFIG).toEqual({ MIN_HAND_SIZE_PX: 15, HYSTERESIS_DELTA_RATIO: 0.05, NULL_FRAME_TIMEOUT: 3 });
+    expect(HandGeometry.create(landmarks(), 640, 480, { MIN_HAND_SIZE_PX: 121 })).toBeNull();
+    expect(HandGeometry.create(landmarks(), 640, 480, { MIN_HAND_SIZE_PX: 120 })).not.toBeNull();
+    expect(resolveConfig({ MIN_HAND_SIZE_PX: NaN, HYSTERESIS_DELTA_RATIO: -1, NULL_FRAME_TIMEOUT: 0 })).toEqual(DEFAULT_CONFIG);
+    expect(resolveConfig({ MIN_HAND_SIZE_PX: 10 }).MIN_HAND_SIZE_PX).toBe(10);
     for (const size of [0, 0.001, 14.99, 15, 16]) {
       const lm = landmarks();
       lm[0].y = 0;
@@ -62,6 +67,24 @@ describe("wrong finger focus", () => {
   });
 
   it("keeps focus during jitter, then switches on a clear advantage", () => {
+    expect(readPinch(frame(0.17, 0.15), 12, { HYSTERESIS_DELTA_RATIO: 0 }).error?.joints).toEqual([16]);
+    expect(readPinch(frame(0.22, 0.12), 12, { HYSTERESIS_DELTA_RATIO: 0.2 }).error?.joints).toEqual([12]);
+    let tracked = stepPinchTracking({ previousWrongJoint: null, nullFrames: 0 }, frame(0.15, 0.17));
+    const original = tracked.state;
+    for (let count = 1; count <= 2; count++) {
+      tracked = stepPinchTracking(tracked.state, null);
+      expect(tracked.reading).toBeNull();
+      expect(tracked.state).toEqual({ previousWrongJoint: 12, nullFrames: count });
+    }
+    tracked = stepPinchTracking(tracked.state, frame(0.17, 0.15));
+    expect(tracked.state).toEqual({ previousWrongJoint: 12, nullFrames: 0 });
+    for (let count = 1; count <= 3; count++) tracked = stepPinchTracking(tracked.state, null);
+    expect(tracked.state).toEqual({ previousWrongJoint: null, nullFrames: 3 });
+    tracked = stepPinchTracking(tracked.state, frame(0.17, 0.15));
+    expect(tracked.state).toEqual({ previousWrongJoint: 16, nullFrames: 0 });
+    expect(original).toEqual({ previousWrongJoint: 12, nullFrames: 0 });
+    expect(stepPinchTracking(original, null, { NULL_FRAME_TIMEOUT: 1 }).state.previousWrongJoint).toBeNull();
+    expect(stepPinchTracking({ previousWrongJoint: 12, nullFrames: 3 }, null, { NULL_FRAME_TIMEOUT: 5 }).state.previousWrongJoint).toBe(12);
     let previous: number | null = null;
     for (const [middle, ring, expected] of [
       [0.15, 0.17, 12], [0.17, 0.15, 12], [0.15, 0.17, 12], [0.22, 0.12, 16],
