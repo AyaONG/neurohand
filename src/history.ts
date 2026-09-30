@@ -3,6 +3,8 @@ import type { Session } from './session';
 import { type ProgressStore } from './storage';
 import { renderResults, getResults } from './results';
 
+const refreshers = new WeakMap<HTMLElement, () => void>();
+export const refreshHistory = (container: HTMLElement) => refreshers.get(container)?.();
 const ids = ['pinch', 'grip', 'hold'] as const;
 const titles = ['Пинцет', 'Сжатия', 'Цели'];
 const hands = { left: 'Левая', right: 'Правая', unspecified: 'Не выбрана' };
@@ -39,10 +41,11 @@ function table(headers: string[], rows: string[][]): HTMLElement {
   t.append(body); wrapper.append(t); return wrapper;
 }
 export function renderHistory(container: HTMLElement, store: ProgressStore, onBack: () => void, filter: HistoryFilter = defaultFilter(), page = 0, focusId?: string): void {
+  refreshers.set(container, () => renderHistory(container, store, onBack, filter, page, ''));
   const heading = element('h2', 'Мой прогресс'); heading.tabIndex = -1;
   const back = element('button', 'К тренировке'); back.id = 'btn-history-back'; back.addEventListener('click', onBack);
   container.replaceChildren(heading, back,
-    element('p', 'История хранится в этом браузере на этом адресе, включая порт. Между устройствами не синхронизируется. Показ по 30 занятий; остальные записи доступны на следующих страницах.'),
+    element('p', store.account ? 'Показана загруженная история этого аккаунта и его локальные записи. Статус каждой строки указывает, подтверждена ли она сервером. Показ по 30 занятий.' : 'История хранится в этом браузере на этом адресе, включая порт. Гостевые данные автоматически не переносятся. Показ по 30 занятий.'),
     element('p', store.notice));
   const matching = filterHistory(store.data.history, { ...filter, seriesId: '' });
   const history = filterHistory(store.data.history, filter);
@@ -65,7 +68,7 @@ export function renderHistory(container: HTMLElement, store: ProgressStore, onBa
   matching.forEach(s => { const key = conditionsKey(s, filter.exercise); if (!unique.has(key)) unique.set(key, s); });
   select('history-series', 'Одинаковые условия', [['', 'Все настройки'], ...[...unique.values()].map(s => [s.id, `Как занятие ${stamp(s)} · ${hands[s.hand]} · ${conditionLabel(s)}`] as [string, string])], filter.seriesId,
     value => ({ ...filter, seriesId: value }));
-  container.append(controls, element('p', 'Статус занятия описывает завершение маршрута. Статусы попыток ниже показывают фактическое выполнение. Хранение: в этом браузере; облачная синхронизация не включена.'));
+  container.append(controls, element('p', 'Статус занятия описывает завершение маршрута. Статусы попыток ниже показывают фактическое выполнение.'));
   if (store.data.history.length && !history.length) container.append(element('p', 'По выбранным фильтрам занятий нет. Измени упражнение или руку.'));
 
   if (!store.data.history.length) container.append(element('p', 'Завершённых тренировок пока нет. Начни тренировку — здесь появятся твои результаты.'));
@@ -77,7 +80,7 @@ export function renderHistory(container: HTMLElement, store: ProgressStore, onBa
   container.append(element('h3', '7 местных календарных дней'), table(['Дата', 'Завершённые', 'Остановленные'],
     activity(history).map(d => [d.label, d.completed ? `✓ ${d.completed}` : '—', d.partial ? `◦ ${d.partial}` : '—'])));
   container.append(element('h3', 'История'), table(['Дата и время', 'Рука', 'Статус занятия', 'Результаты упражнений', 'Статусы попыток', 'Активное время, с', 'Хранение'],
-    visible.map(s => [stamp(s), hands[s.hand], statuses[s.status], metricText(s, filter.exercise), attemptText(s, filter.exercise), activeSeconds(s, filter.exercise), store.notice ? 'Доступно в памяти; см. сообщение хранилища' : 'В этом браузере'])));
+    visible.map(s => [stamp(s), hands[s.hand], statuses[s.status], metricText(s, filter.exercise), attemptText(s, filter.exercise), activeSeconds(s, filter.exercise), store.storageLabel(s.id)])));
   const navigation = element('div'); navigation.className = 'history-pages';
   const previous = document.createElement('button'), next = document.createElement('button');
   previous.id = 'history-previous'; previous.textContent = 'Предыдущие'; previous.disabled = page === 0;
@@ -89,7 +92,7 @@ export function renderHistory(container: HTMLElement, store: ProgressStore, onBa
   for (const s of visible) {
     const button = element('button', `Детали: ${stamp(s)} · ${hands[s.hand]}`);
     button.addEventListener('click', () => {
-      renderResults(details, s, () => {}, undefined, () => renderHistory(container, store, onBack, filter, page));
+      renderResults(details, s, () => {}, undefined, () => renderHistory(container, store, onBack, filter, page), store.storageLabel(s.id));
       // The historical result is read-only; its action returns to the list, never starts a camera.
       const action = details.querySelector<HTMLButtonElement>('#btn-new');
       if (action) action.textContent = 'К списку истории';
@@ -109,5 +112,5 @@ export function renderHistory(container: HTMLElement, store: ProgressStore, onBa
   } else container.append(element('p', 'Недостаточно сопоставимых занятий. Нужны два завершённых маршрута с той же явно выбранной рукой, версией правил и настройками. Без записанной версии правил сравнение недоступно. Неизвестные попытки не восстанавливаются из счётчиков успехов.'));
   if (store.legacy && (filter.hand === 'all' || filter.hand === 'unspecified') && (filter.exercise === 'all' || ids.some(id => id === filter.exercise)) && !filter.seriesId) container.append(element('h3', 'Запись старой версии'), element('p', 'Дата, рука и настройки неизвестны. В сравнение и календарь не включена. Исходная запись сохранена.'),
     table(titles, [ids.map(id => store.legacy!.counters[id] === undefined ? 'Нет данных' : String(store.legacy!.counters[id]))]));
-  if (focusId) container.querySelector<HTMLElement>(`#${focusId}`)?.focus(); else heading.focus();
+  if (focusId) container.querySelector<HTMLElement>(`#${focusId}`)?.focus(); else if (focusId !== '') heading.focus();
 }

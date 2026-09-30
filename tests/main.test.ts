@@ -13,6 +13,17 @@ const authMock = vi.hoisted(() => {
   return { state, auth };
 });
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => ({ auth: authMock.auth }) }));
+const syncMock = vi.hoisted(() => ({ rows: [] as any[] }));
+vi.mock('../src/sync', async importOriginal => {
+  const original = await importOriginal<typeof import('../src/sync')>();
+  return { ...original, supabaseTransport: () => ({
+    insert: vi.fn(async (owner, payload) => {
+      const row = { user_id: owner, id: payload.id, schema_version: 3, started_at: payload.startedAt, ended_at: payload.endedAt, status: payload.status, payload };
+      syncMock.rows.push(row); return row;
+    }), get: vi.fn(async (owner,id) => syncMock.rows.find(r => r.user_id === owner && r.id === id) ?? null),
+    page: vi.fn(async owner => syncMock.rows.filter(r => r.user_id === owner).slice(0,30)),
+  }) };
+});
 vi.mock("../src/camera", () => ({
   initCamera: async () => { await mocks.camera(); return { getTracks: () => [{ stop: mocks.stop, addEventListener: vi.fn() }] }; },
   initTracker: async () => { mocks.tracker(); return { detectForVideo: mocks.detect, close: mocks.close }; },
@@ -50,7 +61,10 @@ class Element {
   focus() {}
   closest() { return this; }
   querySelectorAll() { return this.children.filter(child => !!child.dataset.mode); }
-  querySelector(selector: string) { return this.children.find(child => selector.includes(`"${child.dataset.mode}"`)); }
+  querySelector(selector: string): Element | undefined {
+    if (selector.startsWith('#')) return this.children.find(child => child.id === selector.slice(1)) ?? this.children.map(child => child.querySelector(selector)).find(Boolean);
+    return this.children.find(child => selector.includes(`"${child.dataset.mode}"`));
+  }
 }
 
 const fixture = (name: string): Landmark[] => JSON.parse(readFileSync(new URL(`./fixtures/${name}.json`, import.meta.url), "utf8"));
@@ -66,7 +80,7 @@ function memoryStorage() {
     setItem: vi.fn((key: string, value: string) => { values.set(key, value); }) };
 }
 async function setup(search = "", storage = memoryStorage()) {
-  elements = Object.fromEntries(["auth-status", "btn-sign-in", "btn-sign-out", "video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "ring-options", "ring-tip", "btn-choose-ring", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
+  elements = Object.fromEntries(["sync-panel", "sync-status", "btn-sync-retry", "btn-cloud-more", "btn-import-guest", "guest-import", "btn-export-json", "import-json", "transfer-status", "auth-status", "btn-sign-in", "btn-sign-out", "video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "ring-options", "ring-tip", "btn-choose-ring", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
     .map(id => [id, Object.assign(new Element(), { id })]));
   elements.results.hidden = true;
   modes = Object.fromEntries(["pinch", "grip", "hold"].map(mode => [mode, Object.assign(new Element(), { dataset: { mode } })]));
@@ -101,7 +115,7 @@ function pinch() {
   for (let i = 0; i < 6; i++) frame(fixture("pinch_closed"));
 }
 
-beforeEach(() => { vi.resetModules(); vi.clearAllMocks(); nextFrame = null; time = 1000; });
+beforeEach(() => { vi.resetModules(); vi.clearAllMocks(); syncMock.rows = []; nextFrame = null; time = 1000; });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); authMock.state.initialId = null; });
 
 describe("app wiring with simulated camera frames", () => {
@@ -561,4 +575,33 @@ it('pauses the old owner, clears private views and restores only the new profile
   expect(elements.history.children).toHaveLength(0); expect(elements.results.children).toHaveLength(0);
   expect(elements['auth-status'].textContent).toContain('Гость');
   expect(JSON.parse(memory.getItem(keyA)!).current.exercises.pinch.reps).toBe(1);
+});
+
+
+it('offers unchecked guest choices and imports only selected finals with truthful server confirmation', async () => {
+  const { createSession, finishSession } = await import('../src/session');
+  const memory = memoryStorage();
+  const history = ['guest-first', 'guest-second'].map(id => finishSession(createSession(id, '2026-09-30T00:00:00Z'), 'stopped', '2026-09-30T00:01:00Z'));
+  memory.setItem('neurohand:progress:v3', JSON.stringify({ schemaVersion: 3, current: null, history }));
+  vi.stubEnv('VITE_SUPABASE_URL', 'https://example.supabase.co'); vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', 'sb_publishable_example');
+  authMock.state.initialId = '11111111-1111-4111-8111-111111111111';
+  await setup('', memory);
+  expect(syncMock.rows).toHaveLength(0);
+  await elements['btn-import-guest'].fire('click');
+  const choices = elements['guest-import'].children.filter(n => n.children.length === 2);
+  expect(choices).toHaveLength(2);
+  expect((choices[0].children[0] as Element & { checked?: boolean }).checked).not.toBe(true);
+  Object.assign(choices[0].children[0], { checked: true });
+  await elements['guest-import'].children.at(-1)!.fire('click');
+  await Promise.resolve(); await Promise.resolve();
+  expect(syncMock.rows.map(r => r.id)).toEqual(['guest-first']);
+  expect(elements['sync-status'].textContent).toContain('Сохранено в аккаунте: 1');
+  expect(JSON.parse(memory.getItem('neurohand:progress:v3')!).history).toHaveLength(2);
+  await elements['btn-history'].fire('click');
+  const text = (n: Element): string => n.textContent + n.children.map(text).join(' ');
+  expect(text(elements.history)).toContain('Сохранено в аккаунте');
+  await elements['btn-import-guest'].fire('click');
+  Object.assign(elements['guest-import'].children.filter(n => n.children.length === 2)[0].children[0], { checked: true });
+  await elements['guest-import'].children.at(-1)!.fire('click'); await Promise.resolve();
+  expect(syncMock.rows).toHaveLength(1);
 });

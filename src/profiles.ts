@@ -21,21 +21,32 @@ export class Profiles {
   private stores = new Map<Owner, ProgressStore>();
   private getStorage: () => StoragePort;
   constructor(getStorage: () => StoragePort = () => window.localStorage) { this.getStorage = getStorage; }
-  get store() {
-    let store = this.stores.get(this.owner);
-    if (!store) { store = new ProgressStore(() => scopedStorage(this.getStorage, this.owner)); this.stores.set(this.owner, store); }
+  private forOwner(owner: Owner) {
+    let store = this.stores.get(owner);
+    if (!store) { store = new ProgressStore(() => scopedStorage(this.getStorage, owner)); store.account = owner !== 'guest'; this.stores.set(owner, store); }
     return store;
+  }
+  get store() { return this.forOwner(this.owner); }
+  guestHistory(): Session[] { return structuredClone(this.forOwner('guest').data.history); }
+  importGuest(ids: string[], ticket = this.ticket()): { added: number; same: number; conflicts: number } {
+    const result = { added: 0, same: 0, conflicts: 0 };
+    if (!this.accepts(ticket) || ticket.owner === 'guest') return result;
+    for (const id of new Set(ids)) {
+      const record = this.forOwner('guest').data.history.find(s => s.id === id);
+      if (!record) continue;
+      const merged = this.store.mergeFinal(record, false, true);
+      if (merged === 'conflict') result.conflicts++; else result[merged]++;
+    }
+    return result;
   }
   switchTo(owner: Owner) { if (owner !== this.owner) { this.generation++; this.owner = owner; } return this.store; }
   ticket(): OwnerTicket { return { owner: this.owner, generation: this.generation }; }
   accepts(ticket: OwnerTicket) { return ticket.owner === this.owner && ticket.generation === this.generation; }
-  /** No network sender in stage 12. Durable outbox is a view of this owner's immutable finals.
-   * Reconstruction after reload is atomic with local history; guest results never enter it.
-   * Stage 13 must add server acknowledgements before removing anything from this view. */
+  /** Pending finals and their retry state are persisted atomically with the owner's history. */
   pending(ticket: OwnerTicket = this.ticket()): PendingResult[] {
     if (!this.accepts(ticket) || ticket.owner === 'guest') return [];
     const owner = ticket.owner;
-    return this.store.data.history.map(payload => ({ owner, id: payload.id, payload: structuredClone(payload) }));
+    return this.store.data.history.filter(s => !['saved', 'error'].includes(this.store.syncState(s.id)?.status ?? 'pending')).map(payload => ({ owner, id: payload.id, payload: structuredClone(payload) }));
   }
   acceptResponse(ticket: OwnerTicket, apply: (store: ProgressStore) => void): boolean {
     if (!this.accepts(ticket)) return false;

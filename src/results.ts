@@ -26,7 +26,7 @@ export function getResults(session: Session): { empty: boolean; rows: { exercise
 }
 
 /** A snapshot of session data; never reads numbers back from the DOM. */
-export function renderResults(container: HTMLElement, session: Session, onResume: () => void, onFinish?: () => void, onNew?: () => void): void {
+export function renderResults(container: HTMLElement, session: Session, onResume: () => void, onFinish?: () => void, onNew?: () => void, storageText = 'В этом браузере'): void {
   const model = getResults(session);
   const heading = document.createElement("h2");
   heading.textContent = session.status === "completed" ? "Тренировка завершена" : session.status === "stopped" ? "Тренировка остановлена" : "Текущие итоги";
@@ -54,8 +54,9 @@ export function renderResults(container: HTMLElement, session: Session, onResume
   prompts.hidden = session.mode !== "guided";
   prompts.textContent = exerciseIds.map(id => `${labels[id]} — эпизоды подсказок: ${session.exercises[id]!.started ? Object.values(session.exercises[id]!.promptEpisodes).reduce((a, b) => a + b, 0) : "Не начато"}`).join(". ");
   const notice = document.createElement("p");
+  notice.id = "result-storage-status";
   notice.className = "results-note";
-  notice.textContent = "История хранится в этом браузере на этом адресе. Синхронизации между устройствами нет.";
+  notice.textContent = storageText;
   const disclaimer = document.createElement("p");
   disclaimer.className = "results-note";
   disclaimer.textContent = "Тренажёр не является медицинским устройством. Результаты описывают выполнение заданий.";

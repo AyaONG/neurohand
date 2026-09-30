@@ -35,7 +35,7 @@ export class AuthController {
   private apply(id: string | null) {
     if (this.disposed) return;
     this.userId = id; this.busy = false; this.identity(id);
-    this.emit(id ? 'Вход выполнен · данные в этом браузере, синхронизация ещё не включена' : 'Гость · данные в этом браузере');
+    this.emit(id ? 'Вход выполнен · статус сохранения указан у каждого занятия' : 'Гость · данные в этом браузере');
   }
   start(href?: string, replace?: (url: string) => void): Promise<void> {
     return this.started ??= this.initialize(href, replace);

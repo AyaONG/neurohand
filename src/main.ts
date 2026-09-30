@@ -1,3 +1,5 @@
+import { SyncEngine, supabaseTransport } from './sync';
+import { exportAggregates, importAggregates, MAX_TRANSFER_BYTES } from './transfer';
 import { cloudConfig, AuthController } from './cloud';
 import { Profiles, userOwner } from './profiles';
 import { createRingSession } from './session';
@@ -16,7 +18,7 @@ import { drawHandOverlay, mirrorPoint } from "./draw";
 import { SCENES, mirroredPinchPoint, type SparkFlight } from "./scenes";
 import { dumpCapture, updateDebug, type Capture } from "./debug";
 import { ProgressStore } from "./storage";
-import { renderHistory } from "./history";
+import { renderHistory, refreshHistory } from "./history";
 import { spokenHint } from "./presentation";
 import { getFeedback } from "./feedback";
 import { renderResults } from "./results";
@@ -67,6 +69,7 @@ document.querySelector<HTMLButtonElement>('#btn-choose-ring')!.addEventListener(
 const historyPanel = document.querySelector<HTMLElement>("#history")!;
 const historyButton = document.querySelector<HTMLButtonElement>("#btn-history")!;
 const storageNotice = document.querySelector<HTMLElement>("#storage-notice")!;
+let sync: SyncEngine | null = null;
 const profiles = new Profiles();
 let store = profiles.store;
 let program = store.data.current ? pauseProgram(createProgram(store.data.current), "results") : createProgram();
@@ -74,6 +77,7 @@ let mode: ExerciseId = program.session.currentExercise;
 let sessionStarted = !!store.data.current;
 function persist(timestampMs = performance.now(), force = false): void {
   if (sessionStarted) store.save(program.session, timestampMs, force);
+  if (sessionStarted && program.session.status !== "in_progress") void sync?.flush();
   if (storageNotice.textContent !== store.notice) storageNotice.textContent = store.notice;
 }
 let tracker: Awaited<ReturnType<typeof initTracker>> | null = null;
@@ -234,7 +238,7 @@ function showResults(): void {
   resultsButton.setAttribute("aria-expanded", "true");
   resultsButton.textContent = program.session.status === "in_progress" ? "К упражнениям" : "Итоги";
   persist(performance.now(), true);
-  renderResults(results, program.session, resumeExercise, finishTraining, newTraining);
+  renderResults(results, program.session, resumeExercise, finishTraining, newTraining, store.storageLabel(program.session.id));
 }
 
 function setDebugVisibility(): void {
@@ -546,9 +550,39 @@ function switchProfile(id: string | null): void {
   handChoice.value = sessionStarted ? program.session.hand : 'unspecified'; handChoice.disabled = sessionStarted;
   showExercise(); updateScore(); storageNotice.textContent = store.notice;
   setHint('Профиль изменён. Предыдущее занятие сохранено в прежнем профиле; гостевые результаты не переносятся.');
+  guestImportPanel.replaceChildren(); guestImportPanel.hidden = true; transferMessage(''); importFile.value = '';
   if (sessionStarted) showResults();
+  sync?.reset();
 }
 const cloud = cloudConfig({ VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY });
+const syncStatus = document.querySelector<HTMLElement>('#sync-status')!;
+const syncRetry = document.querySelector<HTMLButtonElement>('#btn-sync-retry')!;
+const syncMore = document.querySelector<HTMLButtonElement>('#btn-cloud-more')!;
+const guestImportButton = document.querySelector<HTMLButtonElement>('#btn-import-guest')!;
+const guestImportPanel = document.querySelector<HTMLElement>('#guest-import')!;
+const exportButton = document.querySelector<HTMLButtonElement>('#btn-export-json')!;
+const importFile = document.querySelector<HTMLInputElement>('#import-json')!;
+function refreshSyncUI(): void {
+  const account = profiles.owner !== 'guest';
+  syncRetry.hidden = syncMore.hidden = guestImportButton.hidden = !account;
+  importFile.disabled = account;
+  if (sync) {
+    const saved = store.data.history.filter(s => store.syncState(s.id)?.status === 'saved').length;
+    const errors = store.data.history.filter(s => store.syncState(s.id)?.status === 'error').length;
+    syncStatus.textContent = (sync.isOnline ? '' : 'Нет сети · ') + (account ? `Сохранено в аккаунте: ${saved} · Ожидает синхронизации: ${profiles.pending().length} · Ошибки: ${errors}. ${sync.message}` : `${store.durable ? 'В этом браузере' : 'Только в памяти'} · гостевые результаты не отправляются`);
+    syncMore.disabled = sync.loading || !sync.more;
+    if (!historyPanel.hidden) refreshHistory(historyPanel);
+    const resultStorage = results.querySelector<HTMLElement>('#result-storage-status');
+    if (resultStorage && sessionStarted) resultStorage.textContent = store.storageLabel(program.session.id);
+  }
+  storageNotice.textContent = store.notice;
+}
+sync = new SyncEngine(profiles, cloud.client ? supabaseTransport(cloud.client) : null, refreshSyncUI);
+syncRetry.addEventListener('click', () => sync!.retry());
+syncMore.addEventListener('click', () => { void sync!.loadMore(); });
+window.addEventListener('offline', () => { sync!.setOnline(false); refreshSyncUI(); });
+window.addEventListener('online', () => sync!.setOnline(true));
+if (navigator.onLine === false) sync.setOnline(false);
 const authStatus = document.querySelector<HTMLElement>('#auth-status')!;
 const signInButton = document.querySelector<HTMLButtonElement>('#btn-sign-in')!;
 const signOutButton = document.querySelector<HTMLButtonElement>('#btn-sign-out')!;
@@ -561,6 +595,12 @@ const auth = new AuthController(cloud.client, switchProfile, state => {
     if (sessionStarted) showResults(); else showExercise();
   }
   authBusy = state.busy;
+  document.querySelector<HTMLElement>('#sync-panel')!.hidden = state.busy;
+  if (!state.busy) {
+    refreshSyncUI();
+    // Auth callbacks stay synchronous; SDK requests start after the callback releases its lock.
+    queueMicrotask(() => { void sync?.flush(); if (state.userId) void sync?.loadMore(true); });
+  }
   signInButton.hidden = !cloud.client || !!state.userId || state.canSignOut;
   signOutButton.hidden = !state.canSignOut;
   signInButton.disabled = signOutButton.disabled = state.busy;
@@ -574,3 +614,48 @@ signInButton.addEventListener('click', () => auth.signIn(location.origin, () => 
 signOutButton.addEventListener('click', () => auth.signOut());
 void auth.start(location.href, url => window.history.replaceState(null, '', url));
 if (import.meta.hot) import.meta.hot.dispose(() => auth.dispose());
+
+
+function transferMessage(text: string) { document.querySelector<HTMLElement>('#transfer-status')!.textContent = text; }
+guestImportButton.addEventListener('click', () => {
+  const ticket = profiles.ticket(); if (ticket.owner === 'guest') return;
+  guestImportPanel.hidden = false; guestImportPanel.replaceChildren();
+  const records = profiles.guestHistory();
+  const description = document.createElement('p'); description.textContent = 'Выбери гостевые занятия для добавления в текущий аккаунт. Исходные гостевые записи останутся.';
+  guestImportPanel.append(description);
+  const choices = records.map(s => {
+    const label = document.createElement('label'), input = document.createElement('input'); input.type = 'checkbox';
+    const text = document.createElement('span'); text.textContent = `${new Date(s.endedAt!).toLocaleString('ru-RU')} · ${{ guided: 'Базовая программа', ring: 'Обведи кольцо', opposition: 'Найди пару' }[s.mode]} · ${{ left: 'Левая', right: 'Правая', unspecified: 'Рука не выбрана' }[s.hand]}`;
+    label.append(input, text); guestImportPanel.append(label); return { input, id: s.id };
+  });
+  const confirm = document.createElement('button'); confirm.textContent = 'Добавить выбранные занятия'; confirm.disabled = records.length === 0;
+  confirm.addEventListener('click', () => {
+    if (!profiles.accepts(ticket)) return;
+    const ids = choices.filter(c => c.input.checked).map(c => c.id);
+    if (!ids.length) { transferMessage('Выбери хотя бы одно занятие'); return; }
+    const result = profiles.importGuest(ids, ticket);
+    transferMessage(`Добавлено: ${result.added} · уже есть: ${result.same} · конфликты без замены: ${result.conflicts}`);
+    guestImportPanel.hidden = true; refreshSyncUI(); void sync!.flush();
+  });
+  guestImportPanel.append(confirm);
+});
+exportButton.addEventListener('click', () => {
+  try {
+    const text = exportAggregates(store.data.history);
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const link = document.createElement('a'); link.href = url; link.download = 'neurohand-aggregates.json'; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000); transferMessage('Экспортированы финальные агрегаты текущего профиля. Токенов и видео в файле нет.');
+  } catch (e) { transferMessage(e instanceof Error ? e.message : 'Экспорт не выполнен'); }
+});
+importFile.addEventListener('change', async () => {
+  const ticket = profiles.ticket(), file = importFile.files?.[0];
+  if (!file || ticket.owner !== 'guest') return;
+  try {
+    if (file.size > MAX_TRANSFER_BYTES) throw Error('Файл превышает 5 MiB');
+    const text = await file.text();
+    if (!profiles.accepts(ticket)) return;
+    const added = importAggregates(store, text); transferMessage(`Импортировано в гостевой профиль: ${added}. Для аккаунта выбери занятия отдельно.`); refreshSyncUI();
+  } catch (e) { if (profiles.accepts(ticket)) transferMessage(e instanceof Error ? e.message : 'Импорт не выполнен'); }
+  finally { importFile.value = ''; }
+});
+if (import.meta.hot) import.meta.hot.dispose(() => sync?.reset());

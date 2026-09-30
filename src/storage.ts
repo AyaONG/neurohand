@@ -1,3 +1,4 @@
+import { sameSession } from './session-equality';
 import { comparableResults } from './progress';
 import { parseRingSettings, settleRing, finishesRing } from './ring';
 import { parseOppositionPlan, consumesPair, PAIR_RULES, PAIR_THRESHOLDS } from './opposition';
@@ -11,7 +12,8 @@ export const V2_STORAGE_KEY = 'neurohand:progress:v2';
 export const LEGACY_KEY = 'neurohand-session';
 const ids = ['pinch', 'grip', 'hold'] as const;
 export type LegacyRecord = { kind: 'legacy'; counters: Partial<Record<ExerciseId, number>> };
-export type Progress = { schemaVersion: 3; current: Session | null; history: Session[] };
+export type SyncState = { status: 'pending' | 'saved' | 'retry' | 'error'; failures: number; retryAt: number; message?: string; guestImported?: boolean };
+export type Progress = { schemaVersion: 3; current: Session | null; history: Session[]; sync?: Record<string, SyncState> };
 export const MEMORY_NOTICE = 'В этом браузере история не сохраняется. Итоги доступны до закрытия страницы';
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
 const number = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
@@ -103,6 +105,8 @@ export class ProgressStore {
   data: Progress = { schemaVersion: 3, current: null, history: [] };
   legacy: LegacyRecord | null = null;
   notice = '';
+  account = false;
+  get durable() { return this.writable; }
   private storage: Pick<Storage, 'getItem' | 'setItem'> | null = null;
   private writable = true;
   private lastEvent = '';
@@ -131,6 +135,20 @@ export class ProgressStore {
           const current = parseSession(v.current);
           if (!current || v.current.schemaVersion !== v.schemaVersion || current.status !== 'in_progress') invalid = true;
           else if (!seen.has(current.id)) this.data.current = { ...current, paused: true, attempts: closeActive(current.attempts, 'reload') };
+        }
+        if (v.sync !== undefined) {
+          if (!object(v.sync)) invalid = true;
+          else {
+            const sync: Record<string, SyncState> = Object.create(null);
+            for (const [id, state] of Object.entries(v.sync)) {
+              if (!seen.has(id) || !object(state) || !['pending', 'saved', 'retry', 'error'].includes(state.status) ||
+                  !count(state.failures) || !number(state.retryAt) || (state.message !== undefined && (typeof state.message !== 'string' || state.message.length > 500)) ||
+                  (state.guestImported !== undefined && typeof state.guestImported !== 'boolean')) { invalid = true; continue; }
+              sync[id] = { status: state.status, failures: state.failures, retryAt: state.retryAt,
+                ...(state.message ? { message: state.message } : {}), ...(state.guestImported ? { guestImported: true } : {}) };
+            }
+            this.data.sync = sync;
+          }
         }
         if (invalid) throw new Error('record');
         // Migrate only after validating the whole source. Keep v2 byte-for-byte intact.
@@ -171,6 +189,39 @@ export class ProgressStore {
       if (this.data.current?.id === clean.id) this.data.current = null;
       this.data.history = [clean, ...this.data.history].sort((a, b) => Date.parse(b.endedAt!) - Date.parse(a.endedAt!));
     }
+    this.write();
+  }
+
+  syncState(id: string): SyncState | undefined {
+    return this.data.sync && Object.hasOwn(this.data.sync, id) ? this.data.sync[id] : undefined;
+  }
+  setSync(id: string, state: SyncState): void {
+    if (!this.data.history.some(s => s.id === id)) return;
+    this.data.sync = { ...this.data.sync, [id]: { ...state, ...(this.syncState(id)?.guestImported ? { guestImported: true } : {}) } };
+    this.write();
+  }
+  storageLabel(id: string): string {
+    const state = this.syncState(id);
+    if (this.account && state?.status === 'saved') return 'Сохранено в аккаунте';
+    if (!this.account || !this.data.history.some(s => s.id === id)) return this.writable ? 'В этом браузере' : 'Только в памяти · локальное сохранение недоступно';
+    if (state?.status === 'error') return `${this.writable ? 'В этом браузере' : 'Только в памяти'} · ошибка синхронизации: ${state.message ?? 'требуется проверка'}`;
+    return 'Ожидает синхронизации' + (this.writable ? '' : ' · копия только в памяти');
+  }
+  /** Immutable union; conflicts never replace a local final or active training. */
+  mergeFinal(session: Session, acknowledged = false, guestImported = false): 'added' | 'same' | 'conflict' {
+    const clean = parseSession(session);
+    if (!clean || clean.status === 'in_progress' || this.data.current?.id === clean.id) return 'conflict';
+    const previous = this.data.history.find(s => s.id === clean.id);
+    if (previous && !sameSession(previous, clean)) return 'conflict';
+    if (!previous) this.data.history = [...this.data.history, clean].sort((a,b) => Date.parse(b.endedAt!) - Date.parse(a.endedAt!));
+    if (acknowledged || guestImported) this.data.sync = { ...this.data.sync, [clean.id]: {
+      status: acknowledged || this.syncState(clean.id)?.status === 'saved' ? 'saved' : 'pending', failures: 0, retryAt: 0,
+      ...(guestImported || this.syncState(clean.id)?.guestImported ? { guestImported: true } : {}),
+    } };
+    this.write(); return previous ? 'same' : 'added';
+  }
+
+  private write(): void {
     if (!this.writable) return;
     try {
       const serialized = JSON.stringify(this.data);

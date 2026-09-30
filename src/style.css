@@ -106,3 +106,9 @@ td { min-width: 90px; }
 
 .auth-panel { max-width: 1120px; margin: auto; padding: 0 24px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .auth-panel p { flex: 1 1 280px; }
+
+.sync-panel { max-width: 1120px; margin: auto; padding: 12px 24px; }
+.sync-panel button { margin: 4px; }
+.sync-panel details { margin: 12px 0; }
+#guest-import label { display: flex; gap: 10px; align-items: center; padding: 8px 0; }
+#guest-import input { min-width: 22px; min-height: 22px; }
