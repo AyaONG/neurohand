@@ -25,7 +25,7 @@ export function reportLines(sessions: Session[], options: ReportOptions = {}): R
     add(`Рука: ${{left:'левая',right:'правая',unspecified:'не указана'}[s.hand]}. Статус: ${{completed:'маршрут завершён',stopped:'остановлено',in_progress:'в процессе'}[s.status]}.`);
     const route = s.attempts?.route;
     if (route) add(`Маршрут: ${route.blocks.map(b => b.mode === 'guided' ? 'Базовая программа' : EXERCISE_LABELS[b.mode]).join(' / ')}. Блок ${route.index + 1} из ${route.blocks.length}.`);
-    add(`Переходы: ${flow ? flow.automatic ? 'автоматические; до 2 оценённых попыток, 20 с пригодного времени на цель' : 'ручной режим без лимита повторов' : 'нет данных о настройке'}.`);
+    add(`Переходы: ${flow ? flow.automatic ? 'автоматические; до 2 оценённых попыток, 20 с на цель без пауз и потери руки' : 'ручной режим без лимита повторов' : 'нет данных о настройке'}.`);
     add(`Цели выполнены: ${rows ? `${rows.filter(g => g.completed).length} / ${rows.length}` : 'нет данных о связях целей'}.`);
     if (c.known) {
       add(`${c.complete ? '' : 'Учтена только записанная часть истории. '}Оценённые попытки: ${c.evaluated}. Полные: ${c.completed}. Частичные: ${c.partial}. Неполные: ${c.incomplete}.`);

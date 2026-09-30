@@ -1,3 +1,4 @@
+import { holdGoalIndex } from './hold-target';
 import { configureReportOwner, pdfButton } from './report-actions';
 import { MovementEvents } from './movement-feedback';
 import { closeGoal } from './flow';
@@ -75,12 +76,36 @@ for (const [mode, card, option] of [
   const entry = document.querySelector<HTMLOptionElement>(`#${option}`)!;
   entry.hidden = entry.disabled = !enabled;
 }
+function selectedModes(): Route['blocks'][number]['mode'][] {
+  return [trainingChoice.value, ...['guided','opposition','ring'].filter(m => document.querySelector<HTMLInputElement>(`#route-${m}`)?.checked)]
+    .filter((m,i,a) => a.indexOf(m)===i && modeEnabled(m)) as Route['blocks'][number]['mode'][];
+}
 function chooseTraining(): void {
   if (!modeEnabled(trainingChoice.value)) trainingChoice.value = 'guided';
-  ringOptions.hidden = trainingChoice.value !== 'ring' && !document.querySelector<HTMLInputElement>('#route-ring')?.checked;
-  pairOptions.hidden = trainingChoice.value !== 'opposition' && !document.querySelector<HTMLInputElement>('#route-opposition')?.checked;
+  for (const name of ['guided','opposition','ring']) {
+    const input=document.querySelector<HTMLInputElement>(`#route-${name}`), label=document.querySelector<HTMLElement>(`#route-${name}-label`);
+    if(input){input.disabled=sessionStarted || !modeEnabled(name) || name===trainingChoice.value;if(name===trainingChoice.value)input.checked=false;}
+    if(label)label.hidden=name===trainingChoice.value || !modeEnabled(name);
+  }
+  const modes=selectedModes();
+  ringOptions.hidden=!modes.includes('ring');pairOptions.hidden=!modes.includes('opposition');
+  trainingChoice.disabled=ringTipChoice.disabled=sessionStarted;
+  const auto=document.querySelector<HTMLInputElement>('#automatic-flow');if(auto)auto.disabled=sessionStarted;
+  for(const c of pairChoices)c.input.disabled=sessionStarted || !modeEnabled('opposition');
+  for(const id of ['pairs-all','pairs-none']) {const button=document.querySelector<HTMLButtonElement>(`#${id}`);if(button)button.disabled=sessionStarted || !modeEnabled('opposition');}
+  const n=pairChoices.filter(c=>c.input.checked).length;
+  const count=document.querySelector<HTMLElement>('#pair-selection');if(count)count.textContent=`Выбрано ${n} из 10 · целей: ${n*2}`+(n?'':' · Выбери хотя бы одну пару для запуска');
+  const order=document.querySelector<HTMLElement>('#route-order');if(order)order.textContent='Маршрут: '+modes.map(m=>({guided:'Базовая программа',opposition:'Пары',ring:'Кольцо'})[m]).join(' → ');
+  if(!sessionStarted) {start.disabled=starting || (modes.includes('opposition') && n===0); if(modes.includes('opposition') && n===0)setHint('Выбери хотя бы одну пару для запуска');}
 }
 trainingChoice.addEventListener('change', chooseTraining);
+for(const c of pairChoices)c.input.addEventListener('change',chooseTraining);
+for(const [id,checked] of [['pairs-all',true],['pairs-none',false]] as const) document.querySelector<HTMLButtonElement>(`#${id}`)?.addEventListener('click',()=>{
+  if(sessionStarted || !modeEnabled('opposition'))return;
+  pairChoices.forEach(c=>{c.input.checked=checked;});
+  const details=document.querySelector<HTMLDetailsElement>('#experimental-pairs');if(details && checked)details.open=true;
+  chooseTraining();
+});
 for (const name of ['guided','opposition','ring']) {
  const input = document.querySelector<HTMLInputElement>(`#route-${name}`);
  if (input) { input.disabled = !modeEnabled(name); input.addEventListener('change', chooseTraining); }
@@ -199,6 +224,8 @@ function resetFrameClock(): void {
 }
 
 function showExercise(): void {
+  document.querySelector<HTMLElement>(sessionStarted ? '#live-controls' : '#setup-start')?.append(panel);
+  chooseTraining();
   historyPanel.hidden = true;
   results.hidden = true;
   home.hidden = sessionStarted;
@@ -350,9 +377,9 @@ function processFrame(timestampMs: number): void {
   const g = landmarks && fullHand ? HandGeometry.create(landmarks, width, height) : null;
   const tracked = program.session.mode !== "guided" ? { state: tracking, reading: null } : stepPinchTracking(tracking, g, timestampMs);
   tracking = tracked.state;
-  const target = width > 0 && height > 0 ? guidedTarget(width, height, program.session.exercises.hold.reps) : null;
+  const target = width > 0 && height > 0 ? guidedTarget(width, height, holdGoalIndex(program.session), program.session.settings.targetRadiusRatio) : null;
   program = stepProgram(program, {
-    timestampMs, wallTime: new Date().toISOString(), geometry: g, fullHand,
+    timestampMs, wallTime: new Date().toISOString(), geometry: g, fullHand, trackingReason: landmarks && !g ? 'quality' : 'tracking',
     ring: mode === 'ring' ? { width, height, point: g && landmarks ? screenPoint(landmarks[program.session.ring!.tip], width, height) : null } : undefined,
     pinch: tracked.reading, palm: g ? mirrorPoint(g.palmCenter(), width) : null, target,
   });
@@ -389,7 +416,7 @@ function processFrame(timestampMs: number): void {
   updateScore();
   pauseButton.disabled = false;
   const missingMs = g || tracking.lastValidTimestamp === null ? 0 : timestampMs - tracking.lastValidTimestamp;
-  const nextTarget = width > 0 && height > 0 ? guidedTarget(width, height, program.session.exercises.hold.reps) : null;
+  const nextTarget = width > 0 && height > 0 ? guidedTarget(width, height, holdGoalIndex(program.session), program.session.settings.targetRadiusRatio) : null;
   drawHandOverlay(ctx, g ? landmarks : null, reading, {
     enabled: debugEnabled, success: feedback.success, fps, handSizeNorm: g?.handSizeNorm ?? null,
     nullTimeoutMs: DEFAULT_CONFIG.NULL_TIMEOUT_MS, missingMs,
@@ -404,11 +431,14 @@ function processFrame(timestampMs: number): void {
       palm: g ? mirrorPoint(g.palmCenter(), width) : null,
       openPalm: !!reading?.open,
       openness: g && program.calibration ? gripOpenness(g, program.calibration) : null,
-      targets: [0, 1, 2].map(index => guidedTarget(width, height, index)),
+      holdGoalIndex: holdGoalIndex(program.session),
+      holdCompleted: program.session.attempts?.flow ? program.session.attempts.runs?.find(r => r.exerciseId === "hold")?.goalIds.flatMap((id,i) => program.session.attempts!.records.some(a => a.goalId === id && a.outcome === "completed") ? [i] : []) : undefined,
+      targets: [0, 1, 2].map(index => guidedTarget(width, height, index, program.session.settings.targetRadiusRatio)),
       holdProgress: program.hold.holdMs / HOLD_TARGET_MS, flight: sparkFlight,
     },
   });
   updateDebug(debug, g, fps, {
+    holdResets: debugEnabled ? JSON.stringify(program.holdResets) : null, holdMs: program.hold.holdMs,
     program: program.phase, phase: program.fsm.phase, error: reading?.error?.code ?? null,
     previousWrongJoint: tracking.previousWrongJoint, missingMs, timeoutMs: DEFAULT_CONFIG.NULL_TIMEOUT_MS, width, height,
   });
@@ -433,13 +463,14 @@ function loop(timestampMs: number): void {
 }
 
 start.addEventListener("click", async () => {
+  if(!sessionStarted && !modeEnabled(trainingChoice.value)){setHint('Этот режим временно отключён.',true);return;}
+  if(!authBusy && !sessionStarted) chooseTraining();
   if (running || starting || start.disabled || program.session.status !== "in_progress") return;
   if (!modeEnabled(sessionStarted ? program.session.mode : trainingChoice.value)) {
     setHint('Этот режим временно отключён. Сохрани текущие итоги и выбери базовую программу.', true); return;
   }
   if (!sessionStarted) {
-    const modes = [trainingChoice.value, ...['guided','opposition','ring'].filter(m => document.querySelector<HTMLInputElement>(`#route-${m}`)?.checked)]
-      .filter((m,i,a) => a.indexOf(m) === i && modeEnabled(m)) as Route['blocks'][number]['mode'][];
+    const modes = selectedModes();
     const allowed = pairChoices.filter(choice => choice.input.checked).map(choice => choice.tip);
     if (modes.includes('opposition') && !allowed.length) { setHint('Выбери хотя бы одну пару пальцев', true); return; }
     const tip = Number(ringTipChoice.value) as RingTip;
@@ -620,7 +651,9 @@ function switchProfile(id: string | null): void {
   ctx.clearRect(0, 0, canvas.width, canvas.height); resetFrameClock();
   handChoice.value = sessionStarted ? program.session.hand : 'unspecified'; handChoice.disabled = sessionStarted;
   showExercise(); updateScore(); storageNotice.textContent = store.notice;
-  setHint('Профиль изменён. Предыдущее занятие сохранено в прежнем профиле; гостевые результаты не переносятся.');
+  const accountNotice=document.querySelector<HTMLElement>('#account-notice');
+  if(accountNotice)accountNotice.textContent='Аккаунт переключён. Показаны его занятия.';
+  setHint('Выбери занятие и нажми «Начать тренировку»');
   guestImportPanel.replaceChildren(); guestImportPanel.hidden = true; transferMessage(''); importFile.value = '';
   if (sessionStarted) showResults();
   sync?.reset();
@@ -633,15 +666,24 @@ const guestImportButton = document.querySelector<HTMLButtonElement>('#btn-import
 const guestImportPanel = document.querySelector<HTMLElement>('#guest-import')!;
 const exportButton = document.querySelector<HTMLButtonElement>('#btn-export-json')!;
 const importFile = document.querySelector<HTMLInputElement>('#import-json')!;
+let accountPdfOwner: string | null=null;
 function refreshSyncUI(): void {
   const account = profiles.owner !== 'guest';
-  syncRetry.hidden = syncMore.hidden = guestImportButton.hidden = !account;
+  syncMore.hidden = !account;
+  guestImportButton.hidden = !account || !profiles.guestHistory().length;
   importFile.disabled = account;
   if (sync) {
     const saved = store.data.history.filter(s => store.syncState(s.id)?.status === 'saved').length;
     const errors = store.data.history.filter(s => store.syncState(s.id)?.status === 'error').length;
-    syncStatus.hidden = !account;
-    syncStatus.textContent = (sync.isOnline ? '' : 'Нет сети · ') + (account ? `Сохранено в аккаунте: ${saved} · Ожидает синхронизации: ${profiles.pending().length} · Ошибки: ${errors}. ${sync.message}` : `${store.durable ? 'В этом браузере' : 'Только в памяти'} · гостевые результаты не отправляются`);
+    syncStatus.hidden = false;
+    const pending=profiles.pending().length;
+    syncRetry.hidden=!account || (!pending && !errors && !sync.message);
+    syncStatus.textContent=!store.durable ? 'История сейчас только в памяти — скачай отчёт или резервную копию.' : !account ? 'Прогресс сохраняется в этом браузере' :
+      errors ? `Не удалось сохранить: ${errors}. Повтори отправку.` : pending ? `Ожидает отправки: ${pending}${sync.isOnline?'':' · Нет сети'}` : saved ? `Сохранено в аккаунте: ${saved}` : 'Новых сохранённых занятий пока нет';
+    const details=document.querySelector<HTMLElement>('#sync-details');if(details)details.textContent=`Сохранено: ${saved} · ожидает отправки: ${pending} · ошибки: ${errors}. ${sync.message}`;
+    const pdf=document.querySelector<HTMLElement>('#account-pdf');
+    if(pdf && accountPdfOwner!==profiles.owner){accountPdfOwner=profiles.owner;pdf.replaceChildren(pdfButton(()=>store.data.history,{filterLabel:'Вся загруженная история текущего аккаунта или гостя. Для периода и фильтров открой «Мой прогресс».'}));}
+
     syncMore.disabled = sync.loading || !sync.more;
     if (!historyPanel.hidden) refreshHistory(historyPanel);
     const resultStorage = results.querySelector<HTMLElement>('#result-storage-status');
@@ -677,6 +719,7 @@ const auth = new AuthController(cloud.client, switchProfile, state => {
   signOutButton.hidden = !state.canSignOut;
   signInButton.disabled = signOutButton.disabled = state.busy;
   start.disabled = state.busy || running || starting;
+  if(!state.busy && !sessionStarted)chooseTraining();
   historyButton.disabled = resultsButton.disabled = state.busy;
 }, cloud.notice, cloud.checkGoogle);
 signInButton.addEventListener('click', () => auth.signIn(location.origin, () => {
@@ -693,6 +736,7 @@ guestImportButton.addEventListener('click', () => {
   const ticket = profiles.ticket(); if (ticket.owner === 'guest') return;
   guestImportPanel.hidden = false; guestImportPanel.replaceChildren();
   const records = profiles.guestHistory();
+  if(!records.length){guestImportPanel.hidden=true;transferMessage('Гостевых занятий для добавления пока нет.');return;}
   const description = document.createElement('p'); description.textContent = 'Выбери гостевые занятия для добавления в текущий аккаунт. Исходные гостевые записи останутся.';
   guestImportPanel.append(description);
   const choices = records.map(s => {
@@ -726,7 +770,7 @@ importFile.addEventListener('change', async () => {
     if (file.size > MAX_TRANSFER_BYTES) throw Error('Файл превышает 5 MiB');
     const text = await file.text();
     if (!profiles.accepts(ticket)) return;
-    const added = importAggregates(store, text); transferMessage(`Импортировано в гостевой профиль: ${added}. Для аккаунта выбери занятия отдельно.`); refreshSyncUI();
+    const added = importAggregates(store, text); transferMessage(`Добавлено в историю этого браузера: ${added}. Для аккаунта выбери занятия отдельно.`); refreshSyncUI();
   } catch (e) { if (profiles.accepts(ticket)) transferMessage(e instanceof Error ? e.message : 'Импорт не выполнен'); }
   finally { importFile.value = ''; }
 });

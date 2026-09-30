@@ -12,6 +12,7 @@ const fist = geometry("grip_closed");
 
 function harness(dt = 20) {
   let p = beginProgram(createProgram(createSession("test-session", "2026-09-29T12:00:00Z")));
+  p.session.recognitionVersion = "landmarks-v1-norm008"; // Regression coverage for unchanged legacy hold rules.
   let t = 0;
   const target = { x: 200, y: 200, r: 60 };
   function frame(g: HandGeometry | null = open, elapsed = dt, inside = true, fullHand = true) {

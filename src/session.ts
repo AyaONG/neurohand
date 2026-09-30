@@ -1,3 +1,4 @@
+import { HOLD_RECOGNITION } from './hold-stability';
 import { createRuns } from './goals';
 import { ringSettings, settleRing, type RingTip, type RingSettings } from './ring';
 import { emptyAttempts, closeActive, type AttemptLog } from './attempts';
@@ -36,7 +37,7 @@ export type RepConfirmed = {
 export function createSession(id: string = crypto.randomUUID(), startedAt = new Date().toISOString()): Session {
   return {
     schemaVersion: 3, attempts: { ...emptyAttempts(), runs: createRuns([['pinch', 5], ['grip', 5], ['hold', 3]]) }, id, startedAt, endedAt: null, status: "in_progress", paused: false,
-    mode: "guided", protocolId: "guided-v1", recognitionVersion: "landmarks-v1-norm008",
+    mode: "guided", protocolId: "guided-v1", recognitionVersion: HOLD_RECOGNITION,
     hand: "unspecified", currentExercise: "pinch",
     settings: { pinchTarget: 5, gripTarget: 5, holdTargetCount: 3, holdTargetMs: 2000, targetRadiusRatio: 0.12 },
     exercises: {

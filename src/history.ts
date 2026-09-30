@@ -51,6 +51,7 @@ export function renderHistory(container: HTMLElement, store: ProgressStore, onBa
     element('p', store.notice));
   const matching = filterHistory(store.data.history, { ...filter, seriesId: '' });
   const history = filterHistory(store.data.history, filter);
+  container.insertBefore(pdfButton(history,{exercise:filter.exercise,filterLabel:`Период: ${filter.from || 'начало истории'} - ${filter.to || 'сегодня'}. Упражнение: ${filter.exercise === 'all' ? 'все' : EXERCISE_LABELS[filter.exercise]}. Рука: ${filter.hand === 'all' ? 'все' : hands[filter.hand]}. ${filter.seriesId ? 'Только выбранные одинаковые условия.' : 'Все настройки.'} Все загруженные занятия по этим фильтрам, включая следующие страницы.`}), back);
   const pages = Math.max(1, Math.ceil(history.length / 30));
   page = Math.max(0, Math.min(page, pages - 1));
   const visible = history.slice(page * 30, (page + 1) * 30);
@@ -74,7 +75,7 @@ export function renderHistory(container: HTMLElement, store: ProgressStore, onBa
     const label=element('label',title), input=document.createElement('input');input.type='date';input.id=`history-${key}`;input.value=filter[key] ?? '';
     input.addEventListener('change',()=>renderHistory(container,store,onBack,{...filter,[key]:input.value},0,input.id));label.append(input);controls.append(label);
   }
-  container.append(pdfButton(history,{exercise:filter.exercise,filterLabel:`Период: ${filter.from || 'начало истории'} - ${filter.to || 'сегодня'}. Упражнение: ${filter.exercise === 'all' ? 'все' : EXERCISE_LABELS[filter.exercise]}. Рука: ${filter.hand === 'all' ? 'все' : hands[filter.hand]}. ${filter.seriesId ? 'Только выбранные одинаковые условия.' : 'Все настройки.'} Выгружена вся загруженная выборка, не только видимая страница.`}));
+
   container.append(controls, element('p', 'Статус занятия описывает завершение маршрута. Статусы попыток ниже показывают фактическое выполнение.'));
   if (store.data.history.length && !history.length) container.append(element('p', 'По выбранным фильтрам занятий нет. Измени упражнение или руку.'));
 

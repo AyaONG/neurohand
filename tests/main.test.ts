@@ -56,6 +56,7 @@ class Element {
   }
   setAttribute(name: string, value: string) { this.attrs[name] = value; }
   removeAttribute(name: string) { delete this.attrs[name]; }
+  insertBefore(node: Element, reference: Element) { this.children.splice(this.children.indexOf(reference), 0, node); }
   append(...items: Element[]) { this.children.push(...items); }
   replaceChildren(...items: Element[]) { this.children = items; }
   focus() {}
@@ -80,7 +81,7 @@ function memoryStorage() {
     setItem: vi.fn((key: string, value: string) => { values.set(key, value); }) };
 }
 async function setup(search = "", storage = memoryStorage()) {
-  elements = Object.fromEntries(["automatic-flow", "route-guided", "route-opposition", "route-ring", "success-star", "pair-8-12", "pair-8-16", "pair-8-20", "pair-12-16", "pair-12-20", "pair-16-20", "card-pairs", "card-ring", "option-pairs", "option-ring", "sync-panel", "sync-status", "btn-sync-retry", "btn-cloud-more", "btn-import-guest", "guest-import", "btn-export-json", "import-json", "transfer-status", "auth-status", "btn-sign-in", "btn-sign-out", "video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "ring-options", "ring-tip", "btn-choose-ring", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
+  elements = Object.fromEntries(["account-notice", "sync-details", "account-pdf", "pairs-all", "pairs-none", "pair-selection", "experimental-pairs", "route-order", "route-guided-label", "route-opposition-label", "route-ring-label", "automatic-flow", "route-guided", "route-opposition", "route-ring", "success-star", "pair-8-12", "pair-8-16", "pair-8-20", "pair-12-16", "pair-12-20", "pair-16-20", "card-pairs", "card-ring", "option-pairs", "option-ring", "sync-panel", "sync-status", "btn-sync-retry", "btn-cloud-more", "btn-import-guest", "guest-import", "btn-export-json", "import-json", "transfer-status", "auth-status", "btn-sign-in", "btn-sign-out", "video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "ring-options", "ring-tip", "btn-choose-ring", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
     .map(id => [id, Object.assign(new Element(), { id })]));
   elements.results.hidden = true;
   Object.assign(elements['training-choice'], { value: 'guided' });
@@ -156,7 +157,7 @@ describe("app wiring with simulated camera frames", () => {
     }
     for (let i = 0; i < 160; i++) frame(fixture("pinch_closed"));
     expect(elements.score.textContent).toBe("Пинцет: 3 / 5");
-    expect(elements.hint.textContent).toContain("Раскрой ладонь");
+    expect(elements.hint.textContent).toContain("Покажи раскрытую ладонь");
     expect(mocks.draw.mock.lastCall?.[3].success).toBe(false);
     await elements["btn-results"].fire("click");
     const snapshot = elements.results.children[2].children.map(row => row.textContent);
@@ -224,7 +225,7 @@ describe("app wiring with simulated camera frames", () => {
         x: p.x + (640 - target.x - 212) / 640,
         y: p.y + (target.y - 228) / 480, z: p.z,
       }));
-      for (let i = 0; i < 65; i++) frame(lm);
+      for (let i = 0; i < 75; i++) frame(lm); // Observed entry, then two measured seconds.
       if (goal < 2) {
         for (let i = 0; i < 160; i++) frame(lm); // Stay at the completed target for >5 seconds.
         expect(elements.score.textContent).toBe(`Перенос: ${goal + 1} / 3`);
@@ -710,4 +711,41 @@ it('keeps the camera running across selected basic → pairs → ring blocks and
  const finals=JSON.parse(memory.getItem('neurohand:progress:v3')!).history;
  expect(finals).toHaveLength(3);expect(new Set(finals.map((s:any)=>s.attempts.route.trainingRunId)).size).toBe(1);
  expect(finals.every((s:any)=>s.status==='completed' && !s.attempts.records.length && s.attempts.flow.goals.every((g:any)=>g.reason==='manual_skip'))).toBe(true);
+});
+
+it('bulk pair selection is explicit, reversible, frozen after launch and mirrors the actual route',async()=>{
+ const memory=memoryStorage();await setup('',memory);await elements['btn-choose-pairs'].fire('click');
+ expect(elements['btn-start'].disabled).toBe(true);expect(elements['pair-selection'].textContent).toContain('Выбрано 0 из 10');
+ await elements['pairs-all'].fire('click');expect(elements['pair-selection'].textContent).toContain('Выбрано 10 из 10 · целей: 20');
+ expect((elements['experimental-pairs'] as any).open).toBe(true);
+ Object.assign(elements['pair-8-16'],{checked:false});await elements['pair-8-16'].fire('change');
+ expect(elements['pair-selection'].textContent).toContain('Выбрано 9 из 10 · целей: 18');
+ await elements['pairs-none'].fire('click');expect(elements['btn-start'].disabled).toBe(true);
+ await elements['pairs-all'].fire('click');Object.assign(elements['route-guided'],{checked:true});await elements['route-guided'].fire('change');
+ expect(elements['route-order'].textContent).toBe('Маршрут: Пары → Базовая программа');expect(elements['route-opposition-label'].hidden).toBe(true);
+ await elements['btn-start'].fire('click');const before=JSON.parse(memory.getItem('neurohand:progress:v3')!).current;
+ expect(before.attempts.route.blocks.map((b:any)=>b.mode)).toEqual(['opposition','guided']);
+ expect(before.opposition.allowed).toHaveLength(10);expect(elements['pairs-none'].disabled).toBe(true);
+ await elements['pairs-none'].fire('click');expect(JSON.parse(memory.getItem('neurohand:progress:v3')!).current.opposition.allowed).toEqual(before.opposition.allowed);
+});
+
+it('PDF is next to history heading and before backup; empty guest imports stay hidden',async()=>{
+ vi.stubEnv('VITE_SUPABASE_URL','https://example.supabase.co');vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY','sb_publishable_example');
+ authMock.state.initialId='11111111-1111-4111-8111-111111111111';await setup();await Promise.resolve();
+ expect(elements['btn-import-guest'].hidden).toBe(true);
+ await elements['btn-import-guest'].fire('click');expect(elements['guest-import'].hidden).toBe(true);
+ expect(elements['account-pdf'].children[0].children[0].textContent).toBe('Скачать отчёт PDF');
+ await elements['btn-history'].fire('click');expect(elements.history.children[1].children[0].textContent).toBe('Скачать отчёт PDF');
+ expect(elements.hint.textContent).not.toContain('Профиль');
+});
+
+it('the separate backup handler still downloads current history as JSON',async()=>{
+ await setup();let output:Blob|undefined;let downloaded:any;
+ const create=vi.spyOn(URL,'createObjectURL').mockImplementation(blob=>{output=blob as Blob;return 'blob:backup-test';});
+ Object.assign(Element.prototype,{click:function(){downloaded=this;}});
+ try {
+  await elements['btn-export-json'].fire('click');
+  expect(downloaded.download).toMatch(/\.json$/);expect(output!.type).toBe('application/json');
+  const backup=JSON.parse(await output!.text());expect(backup.sessions).toEqual([]);
+ } finally {create.mockRestore();delete (Element.prototype as any).click;}
 });

@@ -12,6 +12,7 @@ export function mirroredPinchPoint(points: Point[], width: number): Point {
   return { x: width - (points[4].x + points[8].x) / 2, y: (points[4].y + points[8].y) / 2 };
 }
 export type SceneInput = {
+  holdGoalIndex?: number; holdCompleted?: number[];
   exercise: ExerciseId;
   completed: number;
   timestampMs: number;
@@ -45,11 +46,13 @@ export function sceneModel(width: number, height: number, input: SceneInput) {
     flying = { x: input.flight.from.x + (to.x - input.flight.from.x) * progress,
       y: input.flight.from.y + (to.y - input.flight.from.y) * progress };
   }
+  const goalIndex = input.holdGoalIndex ?? completed;
+  const done = (i: number) => input.holdCompleted ? input.holdCompleted.includes(i) : i < completed;
   const targets = input.targets.map((target, i) => ({
-    ...target, completed: i < completed, active: i === completed,
-    progress: i === completed ? clamp(input.holdProgress) : i < completed ? 1 : 0,
+    ...target, completed: done(i), active: i === goalIndex,
+    progress: done(i) ? 1 : i === goalIndex ? clamp(input.holdProgress) : 0,
   }));
-  const active = targets[completed];
+  const active = targets[goalIndex];
   let arrow: { from: Point; to: Point } | null = null;
   if (input.exercise === "hold" && input.palm && active) {
     const dx = active.x - input.palm.x;

@@ -110,7 +110,7 @@ export class AuthController {
       this.apply(null);
     } catch {
       this.blocked = true; this.busy = false;
-      this.emit('Выход не подтверждён. Прежний профиль скрыт; повтори выход.');
+      this.emit('Выход не подтверждён. Данные прежнего аккаунта скрыты; повтори выход.');
     } finally { this.signingOut = false; }
   }
   dispose() { this.disposed = true; this.revision++; this.subscription?.unsubscribe(); }

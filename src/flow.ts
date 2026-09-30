@@ -1,5 +1,5 @@
 import type { Session } from './session';
-import type { Program, ProgramFrame } from './program';
+import { holdDiagnostic, type Program, type ProgramFrame } from './program';
 import { closeActive } from './attempts';
 import { goalRows } from './goals';
 import { settleOpposition, readOpposition, currentPair } from './opposition';
@@ -63,6 +63,7 @@ export function afterFlow(old: Program, p: Program, frame: ProgramFrame): Progra
     f = { ...f, goals: f.goals.map((g,i) => i === f.cursor ? goal : g) };
     s = { ...s, attempts: { ...s.attempts!, flow: f } };
     if (f.automatic && goal.usableMs === FLOW_RULES.goalMs) {
+      if(s.currentExercise === 'hold') p=holdDiagnostic(p,'goal_timeout');
       s = settleRing(settleOpposition({ ...s, attempts: closeActive(s.attempts, 'timeout', frame.wallTime) }));
       s = closeGoal(s, 'time_limit', frame.wallTime);
     }

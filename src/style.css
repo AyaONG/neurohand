@@ -118,3 +118,41 @@ td { min-width: 90px; }
 #success-star.still { animation: none; }
 @keyframes success-star { from { transform: scale(.7); } 35% { transform: scale(1.15); } to { transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) { #success-star { animation: none; } }
+
+/* Shared setup layout, deliberately independent of exercise-specific widths. */
+.setup-card { max-width: 720px; margin: 24px auto; padding: clamp(16px, 3vw, 28px); border: 1px solid #40536c; border-radius: 18px; background: #121e30; text-align: left; min-width: 0; }
+.setup-card .training-choice, .setup-card #pair-options, .setup-card #ring-options { max-width: none; width: 100%; margin: 0 0 20px; }
+.setup-card fieldset { min-width: 0; border: 1px solid #40536c; border-radius: 12px; padding: 16px; margin: 20px 0; }
+.setup-card label { cursor: pointer; }
+.setup-card fieldset label { display: flex; gap: 12px; align-items: center; padding: 10px 8px; margin: 4px 0; min-height: 48px; overflow-wrap: anywhere; }
+.setup-card input[type=checkbox] { flex: 0 0 24px; width: 24px; height: 24px; accent-color: #7dd3fc; }
+.setup-card input:focus-visible { outline: 3px solid #7dd3fc; outline-offset: 3px; }
+.setup-card select { width: 100%; min-width: 0; max-width: 100%; }
+.auto-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 52px; border-top: 1px solid #40536c; padding-top: 12px; }
+.setup-card p, .setup-card details { font-size: 15px; color: #c1cfe3; margin: 10px 0 18px; }
+.pair-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#setup-start #panel { display: grid; grid-template-columns: 1fr; justify-content: stretch; padding: 16px 0 0; }
+#setup-start #panel > * { width: 100%; min-width: 0; }
+#setup-start #btn-pause:disabled { display: none; }
+#route-order { color: #7dd3fc; }
+.auth-panel { gap: 8px; padding-top: 8px; }
+.auth-panel p { margin: 4px 0; font-size: 14px; flex: 1 1 auto; }
+#account-notice:empty { display: none; }
+#account-notice { color: #afc0d6; }
+.sync-panel { padding-top: 0; padding-bottom: 0; font-size: 14px; }
+.sync-panel > p { margin: 4px 0; }
+.sync-panel details { margin: 8px 0; }
+.pdf-action { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 12px 0; }
+.pdf-action button { background: #bae6fd; color: #0b2233; }
+.pdf-action p { flex: 1 1 220px; font-size: 14px; margin: 0; }
+#history h2, #results h2 { margin-bottom: 12px; }
+@media (max-width: 620px) {
+ .setup-card { padding: 16px; }
+ .setup-card fieldset { padding: 10px; }
+ .pair-actions, .pdf-action { flex-direction: column; align-items: stretch; }
+ .pdf-action p { flex: initial; }
+ .setup-card button { white-space: normal; max-width: 100%; }
+ .auth-panel, .sync-panel { padding-left: 16px; padding-right: 16px; }
+}
+input[type=file] { width: 100%; max-width: 100%; min-width: 0; }
+.setup-card legend { max-width: 100%; white-space: normal; }

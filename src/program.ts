@@ -1,3 +1,4 @@
+import { stableHold, emptyHoldStability, HOLD_RECOGNITION, type HoldStability, type HoldReset } from './hold-stability';
 import { afterFlow, settleFlow, usableFrame, CLOSURE_LABELS, transitionDuration } from './flow';
 import { settleRing } from './ring';
 import { emptyRingState, restartRing, stepRingProgram, ringInstruction, type RingState } from './ring-program';
@@ -20,6 +21,8 @@ type PromptState = { active: string | null; candidate: string | null; since: num
 const emptyPrompt = (): PromptState => ({ active: null, candidate: null, since: null, clearSince: null });
 
 export type Program = {
+  transitionClock?: { goalId: string; anchor: number; baseElapsed: number } | null;
+  holdStability: HoldStability; holdResets: { at: number; reason: HoldReset }[];
   ringState: RingState; attemptObserver: AttemptObserver; oppositionState: OppositionState;
   phase: ProgramPhase; session: Session; calibration: Calibration | null;
   pauseReason: PauseReason | null; fsm: TimedFsm; hold: HoldState;
@@ -30,13 +33,14 @@ export type Program = {
 };
 export type ProgramFrame = {
   ring?: { point: Point | null; width: number; height: number };
+  trackingReason?: 'tracking' | 'quality';
   timestampMs: number; wallTime: string; geometry: HandGeometry | null;
   pinch: Reading | null; fullHand: boolean; palm: Point | null; target: Target | null;
 };
 
 export function createProgram(session = createSession()): Program {
   return {
-    ringState: emptyRingState(), oppositionState: emptyOppositionState(), attemptObserver: emptyObserver(), phase: "intro", session, calibration: null, pauseReason: null,
+    holdStability: emptyHoldStability(), holdResets: [], ringState: emptyRingState(), oppositionState: emptyOppositionState(), attemptObserver: emptyObserver(), phase: "intro", session, calibration: null, pauseReason: null,
     fsm: initialTimedFsm(), hold: { holdMs: 0, reps: session.exercises.hold.reps },
     samples: [], sampleSince: null, readySince: null, transitionSince: null,
     lastTimestamp: null, lastValidTimestamp: null, missingSince: null, wasActive: false,
@@ -45,7 +49,7 @@ export function createProgram(session = createSession()): Program {
 }
 
 function clearTransient(p: Program): Program {
-  return { ...p, ringState: emptyRingState(), oppositionState: emptyOppositionState(), attemptObserver: emptyObserver(), fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise]!.reps),
+  return { ...p, transitionClock: null, holdStability: emptyHoldStability(), ringState: emptyRingState(), oppositionState: emptyOppositionState(), attemptObserver: emptyObserver(), fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise]!.reps),
     hold: { holdMs: 0, reps: p.session.exercises.hold.reps }, samples: [], sampleSince: null,
     readySince: null, lastTimestamp: null, lastValidTimestamp: null, missingSince: null,
     wasActive: false, holdEligible: false, holdInterrupted: false, prompt: emptyPrompt(), reading: null, success: null };
@@ -53,6 +57,7 @@ function clearTransient(p: Program): Program {
 
 export function beginProgram(p: Program, reason: "resize" | "pause" = "pause"): Program {
   if (p.session.status !== "in_progress") return p;
+  if (p.session.currentExercise === "hold" && p.hold.holdMs) p = holdDiagnostic(p, reason === "resize" ? "resize" : "reinitialize");
   const flow = p.session.attempts?.flow;
   if (flow && !flow.goals[flow.cursor].reason) p = { ...p, session: { ...p.session, attempts: { ...p.session.attempts!,
     flow: { ...flow, goals: flow.goals.map((g,i) => i === flow.cursor ? { ...g, ready: false } : g) } } } };
@@ -64,6 +69,7 @@ export function beginProgram(p: Program, reason: "resize" | "pause" = "pause"): 
 }
 
 export function pauseProgram(p: Program, reason: PauseReason, wallTime?: string): Program {
+  if(p.session.currentExercise === "hold" && p.hold.holdMs) p=holdDiagnostic(p,"reinitialize");
   if (p.session.status !== "in_progress") return p;
   const session = settleRing(settleOpposition(pauseSession({ ...p.session, attempts: closeActive(p.session.attempts, (p.missingSince !== null || (p.session.mode === "opposition" && p.oppositionState.ambiguitySince !== null)) ? "tracking" : reason === "manual" ? "pause" : reason, wallTime) })));
   return clearTransient({ ...p, phase: session.status === 'completed' ? 'summary' : 'paused', pauseReason: reason, session });
@@ -72,6 +78,10 @@ export function pauseProgram(p: Program, reason: PauseReason, wallTime?: string)
 export function stopProgram(p: Program, wallTime: string): Program {
   if (p.session.status !== "in_progress") return p;
   return clearTransient({ ...p, phase: "summary", session: finishSession({ ...p.session, attempts: closeActive(p.session.attempts, (p.missingSince !== null || (p.session.mode === "opposition" && p.oppositionState.ambiguitySince !== null)) ? "tracking" : "manual", wallTime) }, "stopped", wallTime) });
+}
+
+export function holdDiagnostic(p: Program, reason: HoldReset): Program {
+  return { ...p, holdResets: [...p.holdResets, { at: p.lastTimestamp ?? 0, reason }].slice(-30) };
 }
 
 export function guidedTarget(width: number, height: number, completed: number, radiusRatio = 0.12): Target {
@@ -106,7 +116,19 @@ function stepExercise(previous: Program, frame: ProgramFrame): Program {
   let p: Program = { ...previous, lastTimestamp: now };
   const gap = previous.lastValidTimestamp === null ? 0 : now - previous.lastValidTimestamp;
   const contiguous = previous.lastValidTimestamp !== null && gap <= PROGRAM_TIMING.maxGapMs;
-  if (p.session.attempts?.active && (!g || !contiguous)) {
+  const stabilized = p.session.currentExercise === 'hold' && p.session.recognitionVersion === HOLD_RECOGNITION && p.phase === 'exercise';
+  if (stabilized && !g) {
+    const key=p.holdStability.targetKey ?? '';
+    const h=stableHold(p.hold,p.holdStability,now,previous.lastTimestamp===null?0:now-previous.lastTimestamp,false,false,frame.trackingReason ?? 'tracking',key);
+    p={...p,hold:h.hold,holdStability:h.state,holdEligible:false,reading:null,lastValidTimestamp:null,missingSince:p.missingSince??now,
+      session:{...p.session,attempts:interruptAttempt(p.session.attempts,previous.lastTimestamp===null?0:now-previous.lastTimestamp,previous.missingSince===null)}};
+    if(h.reset){p=holdDiagnostic(p,h.reset);p={...p,attemptObserver:emptyObserver(),session:{...p.session,attempts:closeActive(p.session.attempts,'tracking',frame.wallTime)}};}
+    return now-p.missingSince!>=PROGRAM_TIMING.lostPauseMs ? pauseProgram(p,'tracking',frame.wallTime) : p;
+  }
+  const shortRecovery = stabilized && previous.missingSince !== null && now-previous.missingSince<150 && previous.holdStability.noiseMs<=250;
+  if(stabilized && !contiguous && !shortRecovery && p.hold.holdMs) p=holdDiagnostic(p,'frame_gap');
+
+  if (p.session.attempts?.active && (!g || !contiguous) && !shortRecovery) {
     const first = previous.missingSince === null;
     const lostMs = previous.lastTimestamp === null ? 0 : now - previous.lastTimestamp;
     let attempts = interruptAttempt(p.session.attempts, lostMs, first);
@@ -115,7 +137,7 @@ function stepExercise(previous: Program, frame: ProgramFrame): Program {
     if (g) attempts = closeActive(attempts, "tracking", frame.wallTime);
     p = { ...p, session: { ...p.session, attempts } };
   }
-  if (!g || !contiguous) {
+  if ((!g || !contiguous) && !shortRecovery) {
     p = { ...p, attemptObserver: emptyObserver(), fsm: initialTimedFsm(p.session.exercises[p.session.currentExercise]!.reps),
       hold: { ...p.hold, holdMs: 0 }, holdEligible: false, wasActive: false,
       holdInterrupted: p.holdInterrupted || p.hold.holdMs > 0,
@@ -157,10 +179,19 @@ function stepExercise(previous: Program, frame: ProgramFrame): Program {
   const dt = contiguous && previous.wasActive ? gap : 0;
   let action = session.exercises[mode]!.reps;
   let bestHold = p.hold.holdMs;
+  let holdMeasured = true;
   if (mode === "hold") {
     const eligible = !!(grip?.open && frame.palm && frame.target &&
       Math.hypot(frame.palm.x - frame.target.x, frame.palm.y - frame.target.y) < frame.target.r);
-    const hold = frame.target ? stepHold(p.hold, eligible ? frame.palm : null, frame.target, p.holdEligible && eligible ? dt : 0) : { ...p.hold, holdMs: 0 };
+    let hold = frame.target ? stepHold(p.hold, eligible ? frame.palm : null, frame.target, p.holdEligible && eligible ? dt : 0) : { ...p.hold, holdMs: 0 };
+    if(stabilized) {
+      const target=frame.target;
+      const key=target ? `${p.session.attempts?.flow?.cursor ?? p.hold.reps}:${target.x}:${target.y}:${target.r}` : '';
+      // Only an observed movement can arm a timed hold; stationary presence cannot earn a goal.
+      const h=stableHold(p.hold,p.holdStability,now,contiguous && session.attempts?.active ? dt : 0,eligible,!!grip?.closed,!grip?.open?'openness':'outside',key);
+      hold=h.hold;holdMeasured=h.measured;p={...p,holdStability:h.state};
+      if(h.reset){p=holdDiagnostic(p,h.reset);session={...session,attempts:closeActive(session.attempts,'returned',frame.wallTime)};p.attemptObserver=emptyObserver();}
+    }
     bestHold = hold.reps > p.hold.reps ? session.settings.holdTargetMs : hold.holdMs;
     action = hold.reps;
     const holdInterrupted = hold.reps > p.hold.reps || hold.holdMs > 0 ? false : p.holdInterrupted || p.hold.holdMs > 0;
@@ -171,11 +202,11 @@ function stepExercise(previous: Program, frame: ProgramFrame): Program {
     p = { ...p, fsm };
   }
   const prompt = updatePrompt(p.prompt, p.reading?.error?.code ?? null, now);
-  session = recordActivity(session, mode, dt, bestHold, prompt.newCode);
+  session = recordActivity(session, mode, holdMeasured ? dt : 0, bestHold, prompt.newCode);
   let recorded = recordRep(session, { sessionId: session.id, exercise: mode, action });
   const confirmed = recorded !== session;
-  const observed = observeMovement(recorded, p.attemptObserver, {
-    now, wallTime: frame.wallTime, dt,
+  const observed = !holdMeasured && !!recorded.attempts?.active ? { session: recorded, observer: p.attemptObserver } : observeMovement(recorded, p.attemptObserver, {
+    now, wallTime: frame.wallTime, dt: stabilized && !previous.holdStability.previousGood ? 0 : dt,
     ready: previous.fsm.phase === "ARMED", open: !!p.reading?.open, error: !!p.reading?.error,
     distance: mode === "hold" ? (frame.palm && frame.target ? Math.hypot(frame.palm.x - frame.target.x, frame.palm.y - frame.target.y) / frame.target.r : 0)
       : mode === "pinch" ? g.nd(4, 8) : Math.max(...[8, 12, 16, 20].map(t => g.curl(t))),
@@ -198,7 +229,8 @@ function stepExercise(previous: Program, frame: ProgramFrame): Program {
 
 export function programInstruction(p: Program, now: number): string {
   const f = p.session.attempts?.flow;
-  if (f && p.phase === 'transition') return `${f.visibilityHelp ? 'Не удаётся увидеть движение. Покажи кисть целиком, раздели кончики и улучши освещение. Продолжение после устойчивого изображения' : CLOSURE_LABELS[f.goals[f.cursor].reason!] + '. Далее'} · ${Math.min(3, Math.max(1, Math.ceil((transitionDuration(f) - f.transitionMs) / 1000)))}`;
+  if (f && p.phase === 'transition' && f.goals[f.cursor].reason === 'success' && f.transitionMs < 900) return 'Выполнено';
+  if (f && p.phase === 'transition') return `${f.visibilityHelp ? 'Не удаётся увидеть движение. Покажи кисть целиком, раздели кончики и улучши освещение. Продолжение после устойчивого изображения' : CLOSURE_LABELS[f.goals[f.cursor].reason!] + '. Далее'} · ${Math.ceil((transitionDuration(f) - f.transitionMs) / 1000)}`;
 
   if (p.session.mode === "ring") return ringInstruction(p);
   if (p.session.mode === "opposition") return oppositionInstruction(p);
@@ -206,12 +238,14 @@ export function programInstruction(p: Program, now: number): string {
     ? "Рука потеряна. Покажи открытую ладонь для продолжения" : "Тренировка на паузе. Нажми «Продолжить»";
   if (p.phase === "preparing") {
     if (!p.calibration) return p.sampleSince === null ? "Покажи ладонь целиком и раскрой пальцы" : `Держи открытую ладонь · ${Math.min(2, (now - p.sampleSince) / 1000).toFixed(1)} / 2 с`;
-    return p.readySince === null ? "Раскрой ладонь перед продолжением" : `Приготовься · ${Math.max(1, Math.ceil((PROGRAM_TIMING.readyMs - now + p.readySince) / 1000))}`;
+    return "Покажи раскрытую ладонь";
   }
   if (p.phase === "transition") return `Задание завершено. Далее: ${p.session.currentExercise === "pinch" ? "5 сжатий" : "3 цели"}. Раскрой ладонь`;
   if (p.session.currentExercise === "pinch") return "Соедини большой и указательный пальцы";
   if (p.session.currentExercise === "grip") return "Раскрой кисть, затем сожми пальцы";
   if (p.reading && !p.reading.open) return "Раскрой ладонь, чтобы удерживать цель";
+  if (p.session.recognitionVersion === HOLD_RECOGNITION && !p.session.attempts?.active && p.attemptObserver.waitingOpen)
+    return "Покажи раскрытую ладонь вне круга, затем перемести её в круг";
   return p.hold.holdMs > 0 ? `Удерживай · ${(p.hold.holdMs / 1000).toFixed(1)} / 2,0 с`
     : p.holdInterrupted ? "Верни ладонь в круг и начни удержание заново" : "Перемести открытую ладонь в круг";
 }
@@ -225,20 +259,23 @@ export function stepProgram(previous: Program, frame: ProgramFrame): Program {
   const f = session.attempts!.flow!;
   if (f.goals[f.cursor].reason) {
     const valid = usableFrame(previous, frame);
-    const gap = previous.lastTimestamp === null ? 0 : frame.timestampMs - previous.lastTimestamp;
-    const dt = valid && previous.lastValidTimestamp === previous.lastTimestamp && gap <= 250 ? gap : 0;
-    const duration = transitionDuration(f);
-    const elapsed = Math.min(duration, f.transitionMs + dt);
-    // Visibility help requires an uninterrupted recovery countdown. Ordinary transitions freeze on loss.
+    const duration = transitionDuration(f), goalId = f.goals[f.cursor].goalId;
+    const priorClock = previous.transitionClock;
+    const clock = valid ? priorClock?.goalId === goalId ? priorClock : {
+      goalId, baseElapsed: f.transitionMs,
+      anchor: previous.lastTimestamp !== null && previous.lastValidTimestamp === previous.lastTimestamp ? previous.lastTimestamp : frame.timestampMs,
+    } : null;
+    const elapsed = clock ? Math.min(duration, clock.baseElapsed + Math.max(0, frame.timestampMs - clock.anchor)) : f.transitionMs;
+    // One monotonic anchor per running interval. Missing tracking freezes it; help requires a fresh interval.
     const nextFlow = { ...f, transitionMs: f.visibilityHelp && !valid ? 0 : elapsed };
-    let p: Program = { ...previous, session: { ...session, paused: false, attempts: { ...session.attempts!, flow: nextFlow } },
+    let p: Program = { ...previous, transitionClock: clock, session: { ...session, paused: false, attempts: { ...session.attempts!, flow: nextFlow } },
       phase: 'transition', lastTimestamp: frame.timestampMs, lastValidTimestamp: valid ? frame.timestampMs : null, missingSince: valid ? null : previous.missingSince ?? frame.timestampMs };
     if (nextFlow.transitionMs < duration) return p;
     if (f.cursor === f.goals.length - 1) return { ...p, phase: 'summary', session: { ...p.session, status: 'completed', endedAt: frame.wallTime, paused: true } };
-    const cursor = f.cursor + 1, goalId = f.goals[cursor].goalId;
-    const run = session.attempts!.runs!.find(r => r.goalIds.includes(goalId))!;
+    const cursor = f.cursor + 1, nextGoalId = f.goals[cursor].goalId;
+    const run = session.attempts!.runs!.find(r => r.goalIds.includes(nextGoalId))!;
     p.session = { ...p.session, currentExercise: run.exerciseId,
-      ...(session.opposition ? { opposition: { ...session.opposition, cursor: run.goalIds.indexOf(goalId), awaitingRelease: false } } : {}),
+      ...(session.opposition ? { opposition: { ...session.opposition, cursor: run.goalIds.indexOf(nextGoalId), awaitingRelease: false } } : {}),
       attempts: { ...p.session.attempts!, flow: { ...nextFlow, cursor, transitionMs: 0, visibilityHelp: false } } };
     return beginProgram(p);
   }

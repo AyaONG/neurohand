@@ -63,7 +63,7 @@ export function renderResults(container: HTMLElement, session: Session, onResume
   const disclaimer = document.createElement("p");
   disclaimer.className = "results-note";
   disclaimer.textContent = "Тренажёр не является медицинским устройством. Результаты описывают выполнение заданий.";
-  container.replaceChildren(heading, description, list, resume, metrics, prompts);
+  container.replaceChildren(heading, description, list, resume, pdfButton([session], {filterLabel: "Показанное занятие"}), metrics, prompts);
   if (session.status === "in_progress" && onFinish) {
     const finish = document.createElement("button");
     finish.id = "btn-finish";
@@ -105,6 +105,5 @@ export function renderResults(container: HTMLElement, session: Session, onResume
     note.textContent = ringMetric(session) + ' Измеряется экранный путь кончика, не изолированное движение пальца.';
     container.append(note);
   }
-  container.append(pdfButton([session]));
   heading.focus();
 }

@@ -102,7 +102,7 @@ it('time limit with an active partial preserves observed movement; pause require
 
 it('reserves 900 ms for success followed by a full separate three-second transition',()=>{
  const h=harness();h.run(400);h.run(500,geometry(.1));
- h.p.session.attempts!.flow!.transitionMs=900;
+ h.p.session.attempts!.flow!.transitionMs=900;h.p.transitionClock=null;
  h.run(2980);expect(h.p.session.opposition!.cursor).toBe(0);
  h.run(20);expect(h.p.session.opposition!.cursor).toBe(1);
 });

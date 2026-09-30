@@ -1,3 +1,4 @@
+import { HOLD_RECOGNITION, HOLD_RULES_VERSION } from './hold-stability';
 import { goalLink } from './goals';
 import { ATTEMPT_RULES as R, emptyAttempts, startAttempt, observeAttempt, finishAttempt, observedOutcome, type AttemptMetrics } from './attempts';
 import type { Session } from './session';
@@ -28,7 +29,8 @@ export function observeMovement(session: Session, previous: AttemptObserver, f: 
       const notReturned = s.baseline !== null && (hold
         ? s.baseline - f.distance > R.holdMovementRatio / 2
         : (s.baseline - f.distance) / (s.baseline - f.successDistance) > R.intentRatio / 2);
-      if (!f.open || notReturned) return { session, observer: { ...s, samples: [] } };
+      const needsOutside = hold && session.recognitionVersion === HOLD_RECOGNITION && f.distance < 1;
+      if (!f.open || notReturned || needsOutside) return { session, observer: { ...s, samples: [] } };
       s.samples.push({ at: f.now, value: f.distance });
       while (s.samples.length > 1 && s.samples[1].at <= f.now - R.stableMs) s.samples.shift();
       if ((!hold && !f.ready) || f.now - s.samples[0].at < R.stableMs) return { session, observer: s };
@@ -61,7 +63,7 @@ export function observeMovement(session: Session, previous: AttemptObserver, f: 
     log = startAttempt(log ?? emptyAttempts(false), {
       attemptId: crypto.randomUUID(), ...goalLink(session, session.exercises[session.currentExercise]!.reps - Number(f.confirmed)), exerciseId: session.currentExercise,
       protocolVersion: session.protocolId, recognizerVersion: session.recognitionVersion,
-      hand: session.hand, rulesVersion: R.version,
+      hand: session.hand, rulesVersion: hold && session.recognitionVersion === HOLD_RECOGNITION ? HOLD_RULES_VERSION : R.version,
       settings: { target: session.exercises[session.currentExercise]!.target, holdTargetMs: session.settings.holdTargetMs,
         targetRadiusRatio: session.settings.targetRadiusRatio, maxActiveMs: R.maxActiveMs },
       startedAt: s.candidateWall, lastObservedAt: s.candidateWall, endedAt: null, outcome: null, endReason: null,
