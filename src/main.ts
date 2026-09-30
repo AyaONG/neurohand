@@ -675,7 +675,8 @@ function refreshSyncUI(): void {
   if (sync) {
     const saved = store.data.history.filter(s => store.syncState(s.id)?.status === 'saved').length;
     const errors = store.data.history.filter(s => store.syncState(s.id)?.status === 'error').length;
-    syncStatus.hidden = false;
+    // Auth already explains durable guest storage; keep warnings and account sync visible.
+    syncStatus.hidden = !account && store.durable;
     const pending=profiles.pending().length;
     syncRetry.hidden=!account || (!pending && !errors && !sync.message);
     syncStatus.textContent=!store.durable ? 'История сейчас только в памяти — скачай отчёт или резервную копию.' : !account ? 'Прогресс сохраняется в этом браузере' :

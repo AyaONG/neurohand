@@ -749,3 +749,41 @@ it('the separate backup handler still downloads current history as JSON',async()
   const backup=JSON.parse(await output!.text());expect(backup.sessions).toEqual([]);
  } finally {create.mockRestore();delete (Element.prototype as any).click;}
 });
+
+
+it.each([false, true])('shows one guest storage message and keeps downloads available (configured: %s)', async configured => {
+  if (configured) {
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://example.supabase.co');
+    vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', 'sb_publishable_example');
+  }
+  await setup();
+  expect(elements['auth-status'].textContent).toContain('Прогресс сохраняется в этом браузере');
+  expect(elements['auth-status'].hidden).toBe(false);
+  expect(elements['sync-status'].hidden).toBe(true);
+  expect(elements['sync-panel'].hidden).toBe(false);
+  expect(elements['account-pdf'].children).toHaveLength(1);
+  expect(elements['btn-export-json'].hidden).toBe(false);
+  expect(elements['btn-sign-in'].hidden).toBe(!configured);
+  if (configured) {
+    authMock.state.listener('SIGNED_IN', { user: { id: '11111111-1111-4111-8111-111111111111' } });
+    expect(elements['sync-status'].hidden).toBe(false);
+    expect(elements['sync-status'].textContent).toBe('Новых сохранённых занятий пока нет');
+    await elements['btn-sign-out'].fire('click');
+    expect(elements['sync-status'].hidden).toBe(true);
+    expect(elements['sync-panel'].hidden).toBe(false);
+    expect(elements['btn-sign-in'].hidden).toBe(false);
+  }
+});
+
+it('keeps memory-only and storage failure warnings visible for a guest', async () => {
+  const storage = memoryStorage();
+  storage.getItem = () => { throw Error('Storage denied'); };
+  storage.setItem.mockImplementation(() => { throw Error('Storage denied'); });
+  await setup('', storage);
+  expect(elements['sync-status'].hidden).toBe(false);
+  expect(elements['sync-status'].textContent).toContain('только в памяти');
+  expect(elements['storage-notice'].hidden).toBe(false);
+  expect(elements['storage-notice'].textContent).toContain('история не сохраняется');
+  expect(elements['sync-panel'].hidden).toBe(false);
+  expect(elements['account-pdf'].children).toHaveLength(1);
+});
