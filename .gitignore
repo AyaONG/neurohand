@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local cloud configuration (only the empty template is committed)
+.env
+.env.*
+!.env.example

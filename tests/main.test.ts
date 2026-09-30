@@ -5,6 +5,14 @@ import type { Landmark } from "../src/types";
 const mocks = vi.hoisted(() => ({
   camera: vi.fn(), tracker: vi.fn(), detect: vi.fn(), close: vi.fn(), stop: vi.fn(), draw: vi.fn(), dump: vi.fn(),
 }));
+const authMock = vi.hoisted(() => {
+  const state = { listener: (_event: string, _session: unknown) => {}, initialId: null as string | null };
+  const auth = { onAuthStateChange: vi.fn(callback => { state.listener = callback; return { data: { subscription: { unsubscribe() {} } } }; }),
+    getSession: vi.fn(async () => ({ data: { session: state.initialId ? { user: { id: state.initialId } } : null }, error: null })),
+    signOut: vi.fn(async () => { state.listener('SIGNED_OUT', null); return { error: null }; }), signInWithOAuth: vi.fn(async () => ({ error: null })) };
+  return { state, auth };
+});
+vi.mock('@supabase/supabase-js', () => ({ createClient: () => ({ auth: authMock.auth }) }));
 vi.mock("../src/camera", () => ({
   initCamera: async () => { await mocks.camera(); return { getTracks: () => [{ stop: mocks.stop, addEventListener: vi.fn() }] }; },
   initTracker: async () => { mocks.tracker(); return { detectForVideo: mocks.detect, close: mocks.close }; },
@@ -58,7 +66,7 @@ function memoryStorage() {
     setItem: vi.fn((key: string, value: string) => { values.set(key, value); }) };
 }
 async function setup(search = "", storage = memoryStorage()) {
-  elements = Object.fromEntries(["video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "ring-options", "ring-tip", "btn-choose-ring", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
+  elements = Object.fromEntries(["auth-status", "btn-sign-in", "btn-sign-out", "video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "ring-options", "ring-tip", "btn-choose-ring", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
     .map(id => [id, Object.assign(new Element(), { id })]));
   elements.results.hidden = true;
   modes = Object.fromEntries(["pinch", "grip", "hold"].map(mode => [mode, Object.assign(new Element(), { dataset: { mode } })]));
@@ -70,7 +78,7 @@ async function setup(search = "", storage = memoryStorage()) {
   });
   vi.stubGlobal("document", document);
   vi.stubGlobal("window", Object.assign(new Element(), { localStorage: storage }));
-  vi.stubGlobal("location", { search });
+  vi.stubGlobal("location", { search, href: `http://localhost:5173/${search}`, origin: "http://localhost:5173" });
   vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn() } });
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { nextFrame = callback; return 1; });
   vi.stubGlobal("cancelAnimationFrame", () => { nextFrame = null; });
@@ -94,7 +102,7 @@ function pinch() {
 }
 
 beforeEach(() => { vi.resetModules(); vi.clearAllMocks(); nextFrame = null; time = 1000; });
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); authMock.state.initialId = null; });
 
 describe("app wiring with simulated camera frames", () => {
   it("opens useful empty results before camera startup, then returns", async () => {
@@ -525,4 +533,32 @@ it('filters history by exercise, hand and conditions, pages visible rows without
   expect(details()).toHaveLength(0); expect(texts()).toContain('По выбранным фильтрам занятий нет');
   expect(texts()).toContain('Недостаточно сопоставимых занятий');
   expect(memory.getItem('neurohand:progress:v3')).toBe(raw);
+});
+
+
+it('pauses the old owner, clears private views and restores only the new profile on real auth events', async () => {
+  vi.stubEnv('VITE_SUPABASE_URL', 'https://example.supabase.co');
+  vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', 'sb_publishable_example');
+  const A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-222222222222';
+  authMock.state.initialId = A;
+  const memory = memoryStorage(); await setup('', memory);
+  await elements['btn-start'].fire('click'); prepare(); pinch();
+  await elements['btn-history'].fire('click');
+  expect(elements.history.children.length).toBeGreaterThan(0);
+  authMock.state.listener('SIGNED_IN', { user: { id: B } });
+  expect(elements.history.children).toHaveLength(0); expect(elements.results.children).toHaveLength(0);
+  expect(elements.home.hidden).toBe(false); expect(nextFrame).toBeNull();
+  const keyA = `neurohand:profile:user:${A}:neurohand:progress:v3`;
+  const old = JSON.parse(memory.getItem(keyA)!);
+  expect(old.current.paused).toBe(true); expect(old.current.exercises.pinch.reps).toBe(1);
+  expect(memory.getItem(`neurohand:profile:user:${B}:neurohand:progress:v3`)).toBeNull();
+  authMock.state.listener('TOKEN_REFRESHED', { user: { id: A } });
+  expect(elements.results.children).toHaveLength(0);
+  authMock.state.listener('SIGNED_IN', { user: { id: A } });
+  expect(elements.results.hidden).toBe(false);
+  expect(elements.results.children[2].children[0].textContent).toContain('1 / 5');
+  await elements['btn-sign-out'].fire('click');
+  expect(elements.history.children).toHaveLength(0); expect(elements.results.children).toHaveLength(0);
+  expect(elements['auth-status'].textContent).toContain('Гость');
+  expect(JSON.parse(memory.getItem(keyA)!).current.exercises.pinch.reps).toBe(1);
 });

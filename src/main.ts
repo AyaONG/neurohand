@@ -1,3 +1,5 @@
+import { cloudConfig, AuthController } from './cloud';
+import { Profiles, userOwner } from './profiles';
 import { createRingSession } from './session';
 import { RING_NAMES, RING_TIPS, screenPoint, type RingTip } from './ring';
 import { finishRingAttempt } from './ring-program';
@@ -65,7 +67,8 @@ document.querySelector<HTMLButtonElement>('#btn-choose-ring')!.addEventListener(
 const historyPanel = document.querySelector<HTMLElement>("#history")!;
 const historyButton = document.querySelector<HTMLButtonElement>("#btn-history")!;
 const storageNotice = document.querySelector<HTMLElement>("#storage-notice")!;
-const store = new ProgressStore();
+const profiles = new Profiles();
+let store = profiles.store;
 let program = store.data.current ? pauseProgram(createProgram(store.data.current), "results") : createProgram();
 let mode: ExerciseId = program.session.currentExercise;
 let sessionStarted = !!store.data.current;
@@ -417,7 +420,7 @@ start.addEventListener("click", async () => {
     calibrateButton.disabled = true;
     pauseButton.disabled = false;
     for (const track of stream.getTracks()) track.addEventListener("ended", () => {
-      if (!running) return;
+      if (!running || token !== generation) return;
       program = pauseProgram(program, "camera", new Date().toISOString());
       stopCamera();
       setHint("Камера отключена. Подключите её и повторите запуск.", true);
@@ -527,3 +530,47 @@ window.addEventListener('resize', () => {
   if (program.session.mode !== 'ring' || program.session.status !== 'in_progress' || program.phase === 'paused') return;
   program = beginProgram(program, 'resize'); resetFrameClock(); persist(performance.now(), true); updateScore();
 });
+
+
+// Identity changes first save to the OLD owner's store, then clear every old view.
+function switchProfile(id: string | null): void {
+  const owner = userOwner(id);
+  if (profiles.owner === owner) return;
+  if (sessionStarted && program.session.status === 'in_progress') program = pauseProgram(program, 'manual', new Date().toISOString());
+  stopCamera();
+  store = profiles.switchTo(owner);
+  program = store.data.current ? pauseProgram(createProgram(store.data.current), 'results') : createProgram();
+  sessionStarted = !!store.data.current; mode = program.session.currentExercise;
+  historyPanel.replaceChildren(); results.replaceChildren();
+  ctx.clearRect(0, 0, canvas.width, canvas.height); resetFrameClock();
+  handChoice.value = sessionStarted ? program.session.hand : 'unspecified'; handChoice.disabled = sessionStarted;
+  showExercise(); updateScore(); storageNotice.textContent = store.notice;
+  setHint('Профиль изменён. Предыдущее занятие сохранено в прежнем профиле; гостевые результаты не переносятся.');
+  if (sessionStarted) showResults();
+}
+const cloud = cloudConfig({ VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY });
+const authStatus = document.querySelector<HTMLElement>('#auth-status')!;
+const signInButton = document.querySelector<HTMLButtonElement>('#btn-sign-in')!;
+const signOutButton = document.querySelector<HTMLButtonElement>('#btn-sign-out')!;
+let authBusy = false;
+const auth = new AuthController(cloud.client, switchProfile, state => {
+  authStatus.textContent = state.text;
+  if (state.busy) {
+    historyPanel.hidden = results.hidden = stage.hidden = home.hidden = panel.hidden = tabs.hidden = true;
+  } else if (authBusy) {
+    if (sessionStarted) showResults(); else showExercise();
+  }
+  authBusy = state.busy;
+  signInButton.hidden = !cloud.client || !!state.userId || state.canSignOut;
+  signOutButton.hidden = !state.canSignOut;
+  signInButton.disabled = signOutButton.disabled = state.busy;
+  start.disabled = state.busy || running || starting;
+  historyButton.disabled = resultsButton.disabled = state.busy;
+}, cloud.notice);
+signInButton.addEventListener('click', () => auth.signIn(location.origin, () => {
+  if (sessionStarted) program = pauseProgram(program, 'manual', new Date().toISOString());
+  stopCamera();
+}));
+signOutButton.addEventListener('click', () => auth.signOut());
+void auth.start(location.href, url => window.history.replaceState(null, '', url));
+if (import.meta.hot) import.meta.hot.dispose(() => auth.dispose());

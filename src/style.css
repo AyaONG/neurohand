@@ -103,3 +103,6 @@ td { min-width: 90px; }
 .history-filters label { display: grid; gap: 6px; min-width: 0; flex: 1 1 200px; }
 .history-filters select { width: 100%; }
 .history-pages { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+
+.auth-panel { max-width: 1120px; margin: auto; padding: 0 24px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.auth-panel p { flex: 1 1 280px; }
