@@ -8,7 +8,7 @@ import { createRingSession } from './session';
 import { RING_NAMES, RING_TIPS, screenPoint, type RingTip } from './ring';
 import { finishRingAttempt } from './ring-program';
 import { createOppositionSession } from './session';
-import { currentPair, FINGER_TIPS, FINGER_NAMES, pairCounts, pairTask } from './opposition';
+import { currentPair, FINGER_TIPS, ALL_PAIR_KEYS, pairOf, pairLabel, pairCounts, pairTask } from './opposition';
 import { finishOppositionAttempt, skipOppositionPair } from './opposition-program';
 // Точка входа NeuroHand: связывает модули, цикл кадров и интерфейс.
 import { initCamera, initTracker } from "./camera";
@@ -56,7 +56,7 @@ const trainingChoice = document.querySelector<HTMLSelectElement>('#training-choi
 const ringOptions = document.querySelector<HTMLElement>('#ring-options')!;
 const ringTipChoice = document.querySelector<HTMLSelectElement>('#ring-tip')!;
 const pairOptions = document.querySelector<HTMLElement>('#pair-options')!;
-const pairChoices = FINGER_TIPS.map(tip => ({ tip, input: document.querySelector<HTMLInputElement>(`#pair-${tip}`)! }));
+const pairChoices = ALL_PAIR_KEYS.map(tip => ({ tip, input: document.querySelector<HTMLInputElement>(`#pair-${tip}`)! }));
 const pairGuide = document.querySelector<SVGElement>('#pair-guide')!;
 const finishAttemptButton = document.querySelector<HTMLButtonElement>('#btn-finish-attempt')!;
 const skipPairButton = document.querySelector<HTMLButtonElement>('#btn-skip-pair')!;
@@ -140,12 +140,12 @@ function updateScore(): void {
   }
   if (pairs) {
     const tip = currentPair(program.session), counts = pairCounts(program.session), plan = program.session.opposition!;
-    taskTitle.textContent = `Найди пару · большой + ${FINGER_NAMES[tip]}`;
+    taskTitle.textContent = `Найди пару · ${pairLabel(tip)}`;
     taskDescription.textContent = pairTask(tip);
     score.textContent = `Задания: ${counts.consumed} / ${plan.sequence.length} · Полностью: ${counts.completed}`;
     programStatus.textContent = currentGoalText(program.session) || `Пара ${plan.cursor + 1} из ${plan.sequence.length}`;
     pairGuide.setAttribute('aria-label', pairTask(tip));
-    for (const point of [4, ...FINGER_TIPS]) document.querySelector(`#guide-tip-${point}`)!.classList.toggle('selected', point === 4 || point === tip);
+    for (const point of [4, ...FINGER_TIPS]) document.querySelector(`#guide-tip-${point}`)!.classList.toggle('selected', pairOf(tip).includes(point as 4 | 8 | 12 | 16 | 20));
     tabs.hidden = true;
     return;
   }
@@ -364,7 +364,8 @@ function processFrame(timestampMs: number): void {
     nullTimeoutMs: DEFAULT_CONFIG.NULL_TIMEOUT_MS, missingMs,
     gripOpenness: mode === "grip" && g && program.calibration ? gripOpenness(g, program.calibration) : undefined,
     target: mode === "hold" && nextTarget ? { ...nextTarget, progress: program.hold.holdMs / HOLD_TARGET_MS } : undefined,
-    pairTip: mode === "opposition" ? currentPair(program.session) : undefined,
+    pairTip: mode === "opposition" && typeof currentPair(program.session) === 'number' ? currentPair(program.session) as 8 | 12 | 16 | 20 : undefined,
+    pair: mode === 'opposition' ? pairOf(currentPair(program.session)) : undefined,
     ring: mode === 'ring' ? { tip: program.session.ring!.tip, marks: program.session.attempts?.active?.metrics.kind === 'ring' ? program.session.attempts.active.metrics.marks : 0 } : undefined,
     scene: program.session.mode !== 'guided' ? undefined : {
       exercise: mode, completed: program.session.exercises[mode]!.reps, timestampMs, reducedMotion,

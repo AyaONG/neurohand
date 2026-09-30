@@ -80,7 +80,7 @@ function memoryStorage() {
     setItem: vi.fn((key: string, value: string) => { values.set(key, value); }) };
 }
 async function setup(search = "", storage = memoryStorage()) {
-  elements = Object.fromEntries(["card-pairs", "card-ring", "option-pairs", "option-ring", "sync-panel", "sync-status", "btn-sync-retry", "btn-cloud-more", "btn-import-guest", "guest-import", "btn-export-json", "import-json", "transfer-status", "auth-status", "btn-sign-in", "btn-sign-out", "video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "ring-options", "ring-tip", "btn-choose-ring", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
+  elements = Object.fromEntries(["pair-8-12", "pair-8-16", "pair-8-20", "pair-12-16", "pair-12-20", "pair-16-20", "card-pairs", "card-ring", "option-pairs", "option-ring", "sync-panel", "sync-status", "btn-sync-retry", "btn-cloud-more", "btn-import-guest", "guest-import", "btn-export-json", "import-json", "transfer-status", "auth-status", "btn-sign-in", "btn-sign-out", "video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "ring-options", "ring-tip", "btn-choose-ring", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
     .map(id => [id, Object.assign(new Element(), { id })]));
   elements.results.hidden = true;
   Object.assign(elements['training-choice'], { value: 'guided' });
@@ -654,4 +654,40 @@ it('uses unique release card IDs on the matching new exercises in the real HTML'
   expect(new Set(ids).size).toBe(ids.length);
   expect(html.match(/<article id="card-pairs">[\s\S]*?<\/article>/)?.[0]).toContain('id="btn-choose-pairs"');
   expect(html.match(/<article id="card-ring">[\s\S]*?<\/article>/)?.[0]).toContain('id="btn-choose-ring"');
+});
+
+it('shows one goal completed on the third evaluated attempt and restores its detailed results', async () => {
+  const memory = memoryStorage(); await setup('',memory);
+  await elements['btn-choose-pairs'].fire('click');
+  Object.assign(elements['pair-12'], { checked:true });
+  await elements['btn-start'].fire('click'); prepare();
+  for (let attempt=0;attempt<2;attempt++) {
+    for (let i=0;i<22;i++) frame(pairPose(8));
+    for (let i=0;i<30;i++) frame(fixture('grip_open'));
+  }
+  expect(elements['program-status'].textContent).toContain('Цель 1 из 2 · Попытка 3');
+  for (let i=0;i<20;i++) frame(pairPose(12));
+  expect(elements['program-status'].textContent).toContain('Выполнено с третьей попытки');
+  await elements['btn-results'].fire('click');
+  const text = (node:Element):string => node.textContent + node.children.map(text).join(' ');
+  expect(text(elements.results)).toContain('Оценено: 3');
+  expect(text(elements.results)).toContain('Цели выполнены: 1 / 2');
+  expect(text(elements.results)).toContain('Выполнено с третьей попытки');
+  vi.resetModules(); await setup('',memory);
+  expect(text(elements.results)).toContain('Оценено: 3');
+  expect(text(elements.results)).toContain('Выполнено с третьей попытки');
+});
+
+it('manually selects a non-thumb pair and highlights exactly its two tips', async () => {
+  const memory = memoryStorage(); await setup('',memory);
+  await elements['btn-choose-pairs'].fire('click');
+  Object.assign(elements['pair-8-16'],{checked:true});
+  await elements['btn-start'].fire('click'); prepare();
+  const s=JSON.parse(memory.getItem('neurohand:progress:v3')!).current;
+  expect(s.opposition.allowed).toEqual(['8-16']);
+  expect(elements['task-description'].textContent).toContain('Экспериментальный');
+  expect(elements['guide-tip-4'].classes.has('selected')).toBe(false);
+  expect(elements['guide-tip-8'].classes.has('selected')).toBe(true);
+  expect(elements['guide-tip-16'].classes.has('selected')).toBe(true);
+  expect(mocks.draw.mock.lastCall![3].pair).toEqual([8,16]);
 });

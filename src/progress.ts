@@ -1,7 +1,7 @@
 import type { Session } from './session';
 import type { ExerciseId } from './types';
 import type { Attempt, AttemptEndReason } from './attempts';
-import { FINGER_NAMES } from './opposition';
+import { pairLabel } from './opposition';
 import { RING_NAMES } from './ring';
 
 export const EXERCISE_LABELS: Record<ExerciseId, string> = { pinch: 'Пинцет', grip: 'Сжатия', hold: 'Перенос', opposition: 'Найди пару', ring: 'Обведи кольцо' };
@@ -55,9 +55,9 @@ export function knownRules(s: Session, exercise: ExerciseFilter): boolean {
   return s.mode === 'ring' ? !!s.ring?.rulesVersion : s.mode === 'opposition' ? !!s.opposition?.rulesVersion :
     selectedIds(s, exercise).every(id => selectedAttempts(s, id).some(a => !!a.rulesVersion));
 }
-export function conditionLabel(s: Session): string {
-  if (s.ring) return `Кольцо · ${RING_NAMES[s.ring.tip]} · коридор ±${Math.round(s.ring.corridorRatio * 100)}% радиуса · ${s.ring.maxActiveMs / 1000} с · ${s.ring.rulesVersion}`;
-  if (s.opposition) return `Пары: ${s.opposition.allowed.map(t => FINGER_NAMES[t]).join(', ')} · ${s.opposition.sequence.length} заданий · ${s.opposition.rulesVersion}`;
+export function conditionLabel(s: Session, debug = false): string {
+  if (s.ring) return `Кольцо · ${RING_NAMES[s.ring.tip]} · коридор ±${Math.round(s.ring.corridorRatio * 100)}% радиуса · ${s.ring.maxActiveMs / 1000} с${debug ? " · " + s.ring.rulesVersion : ""}`;
+  if (s.opposition) return `Пары: ${s.opposition.allowed.map(pairLabel).join(', ')} · ${s.opposition.sequence.length} заданий${debug ? " · " + s.opposition.rulesVersion : ""}`;
   return `Базовая программа ${s.settings.pinchTarget}/${s.settings.gripTarget}/${s.settings.holdTargetCount} · удержание ${s.settings.holdTargetMs / 1000} с${knownRules(s, 'all') ? '' : ' · версия правил попыток не записана'}`;
 }
 export function comparableResults(a: Session, b: Session, exercise: ExerciseFilter = 'all'): boolean {
@@ -75,7 +75,7 @@ export function filterHistory(history: Session[], filter: HistoryFilter): Sessio
 export const END_REASONS: Record<AttemptEndReason, string> = { confirmed: 'подтверждено', returned: 'возврат в исходную позу', manual: 'завершено вручную', pause: 'пауза', results: 'просмотр итогов', visibility: 'вкладка скрыта', tracking: 'потеря руки', camera: 'камера недоступна', reload: 'перезагрузка', resize: 'размер экрана изменён', timeout: 'время истекло', skip: 'явный пропуск', off_path: 'выход из коридора / неверное направление', jump: 'скачок координат' };
 export function attemptDetail(a: Attempt, debug = false): string {
   const outcomes = { completed: 'Выполнено', partial: 'Выполнено частично', incomplete: 'Попытка не завершена', unscorable: 'Не удалось оценить', cancelled: 'Остановлено' };
-  const target = a.exerciseId === 'opposition' ? `Большой + ${FINGER_NAMES[a.settings.pairTip!]}` : a.exerciseId === 'ring' ? `Кольцо · ${RING_NAMES[a.settings.ring!.tip]}` : EXERCISE_LABELS[a.exerciseId];
+  const target = a.exerciseId === 'opposition' ? pairLabel(a.settings.pairTip!) : a.exerciseId === 'ring' ? `Кольцо · ${RING_NAMES[a.settings.ring!.tip]}` : EXERCISE_LABELS[a.exerciseId];
   const m = a.metrics;
   const metric = m.kind === 'ring' ? `${m.marks} / 12 отметок · ${m.returned ? 'с возвратом' : 'без подтверждённого возврата'}` :
     m.kind === 'hold' ? `удержание ${(m.bestHoldMs / 1000).toFixed(1)} / ${(m.targetMs / 1000).toFixed(1)} с` :

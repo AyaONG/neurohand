@@ -1,7 +1,7 @@
 import { sameSession } from './session-equality';
 import { comparableResults } from './progress';
 import { parseRingSettings, settleRing, finishesRing } from './ring';
-import { parseOppositionPlan, consumesPair, PAIR_RULES, PAIR_THRESHOLDS } from './opposition';
+import { parseOppositionPlan, consumesPair, PAIR_RULES, pairRules } from './opposition';
 import { closeActive } from './attempts';
 import { parseAttemptLog } from './attempt-storage';
 import type { Session, ExerciseResult } from './session';
@@ -61,7 +61,7 @@ export function parseSession(v: unknown): Session | null {
     if (projected.status !== v.status || JSON.stringify(projected.exercises.ring) !== JSON.stringify(v.exercises.ring) || records.filter(a => a.outcome === 'completed').length > 1) return null;
     exercises.ring = projected.exercises.ring!;
   } else if (v.mode === 'opposition') {
-    if (!opposition || !attempts || !attempts.historyComplete || v.recognitionVersion !== PAIR_RULES.recognizerVersion) return null;
+    if (!opposition || !attempts || !attempts.historyComplete || v.recognitionVersion !== (opposition.rulesVersion === 'mixed-pairs-v2' ? 'opposition-mixed-norm-v2' : PAIR_RULES.recognizerVersion)) return null;
     const records = [...attempts.records, ...(attempts.active ? [attempts.active] : [])];
     const used = new Set<number>();
     for (const a of records) {
@@ -69,7 +69,7 @@ export function parseSession(v: unknown): Session | null {
       if (attempts.runs && a.goalId !== attempts.runs[0].goalIds[i!]) return null;
       if (a.exerciseId !== 'opposition' || i === undefined || i > opposition.cursor ||
           a.settings.pairTip !== opposition.sequence[i] || a.settings.target !== opposition.sequence.length ||
-          (a.metrics.kind === 'closure' && a.metrics.successDistance !== PAIR_THRESHOLDS[a.settings.pairTip!].close) ||
+          (a.metrics.kind === 'closure' && a.metrics.successDistance !== pairRules(a.settings.pairTip!).close) ||
           a.hand !== v.hand || a.protocolVersion !== v.protocolId || a.recognizerVersion !== v.recognitionVersion) return null;
       if (consumesPair(a)) { if (used.has(i)) return null; used.add(i); }
     }

@@ -1,6 +1,6 @@
 import type { ExerciseRun } from './goals';
 import type { RingSettings } from './ring';
-import type { FingerTip } from './opposition';
+import type { PairKey, FingerPair } from './opposition';
 import type { ExerciseId } from './types';
 
 export type AttemptOutcome = 'completed' | 'partial' | 'incomplete' | 'unscorable' | 'cancelled';
@@ -19,7 +19,7 @@ export type Attempt = {
   exerciseRunId?: string; goalId?: string; attemptOrder?: number;
   attemptId: string; exerciseId: ExerciseId; protocolVersion: string; recognizerVersion: string;
   hand: 'left' | 'right' | 'unspecified'; rulesVersion: string;
-  settings: { target: number; holdTargetMs: number; targetRadiusRatio: number; maxActiveMs: number; pairTip?: FingerTip; sequenceIndex?: number; partialRatio?: number; ring?: RingSettings };
+  settings: { target: number; holdTargetMs: number; targetRadiusRatio: number; maxActiveMs: number; pairTip?: PairKey; pair?: FingerPair; pairRule?: string; movementPair?: FingerPair; movementStartDistance?: number; sequenceIndex?: number; partialRatio?: number; ring?: RingSettings };
   startedAt: string; lastObservedAt: string; endedAt: string | null;
   outcome: AttemptOutcome | null; endReason: AttemptEndReason | null;
   activeMs: number; validTrackingMs: number;

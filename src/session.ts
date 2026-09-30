@@ -1,7 +1,7 @@
 import { createRuns } from './goals';
 import { ringSettings, settleRing, type RingTip, type RingSettings } from './ring';
 import { emptyAttempts, closeActive, type AttemptLog } from './attempts';
-import { createOppositionPlan, settleOpposition, PAIR_RULES, type FingerTip, type OppositionPlan } from './opposition';
+import { createOppositionPlan, settleOpposition, PAIR_RULES, type PairKey, type OppositionPlan } from './opposition';
 import type { BasicExerciseId, ExerciseId } from "./types";
 
 export const GUIDED_TARGETS = { pinch: 5, grip: 5, hold: 3 } as const;
@@ -99,9 +99,9 @@ export function finishSession(session: Session, status: "completed" | "stopped",
   return { ...session, attempts: closeActive(session.attempts, 'manual', endedAt), status, endedAt, paused: true };
 }
 
-export function createOppositionSession(allowed: FingerTip[], id = crypto.randomUUID(), startedAt = new Date().toISOString(), random = Math.random): Session {
+export function createOppositionSession(allowed: PairKey[], id = crypto.randomUUID(), startedAt = new Date().toISOString(), random = Math.random): Session {
   const base = createSession(id, startedAt), opposition = createOppositionPlan(allowed, random);
-  return { ...base, mode: 'opposition', protocolId: 'opposition-v1', recognitionVersion: PAIR_RULES.recognizerVersion,
+  return { ...base, mode: 'opposition', protocolId: 'opposition-v1', recognitionVersion: opposition.rulesVersion === 'mixed-pairs-v2' ? 'opposition-mixed-norm-v2' : PAIR_RULES.recognizerVersion,
     currentExercise: 'opposition', opposition, attempts: { ...emptyAttempts(), runs: createRuns([['opposition', opposition.sequence.length]]) }, exercises: { ...base.exercises,
       opposition: { reps: 0, target: opposition.sequence.length, started: false, activeMs: 0, promptEpisodes: {}, bestHoldMs: null } } };
 }

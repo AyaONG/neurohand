@@ -287,3 +287,14 @@ it('preserves historical finals without inventing run/goal associations or chang
   expect(m.getItem(STORAGE_KEY)).toBe(raw);
   expect(loaded.data.history[0].attempts!.runs).toBeUndefined();
 });
+
+it('two sub-threshold target excursions end incomplete, then complete the SAME goal on the third attempt', async () => {
+  const { goalRows } = await import('../src/goals');
+  const h = harness(); h.prepare();
+  const start = geometry().nd(4,12), distance = start - 0.15 * (start - 0.26);
+  for (let i=0;i<2;i++) { h.run(600, geometry(12, distance)); h.run(800); }
+  expect(h.p.session.attempts!.records.map(a => a.outcome)).toEqual(['incomplete','incomplete']);
+  h.close();
+  expect(goalRows(h.p.session.attempts)![0]).toMatchObject({ completed:true, toSuccess:3 });
+  expect(h.p.session.exercises.opposition!.reps).toBe(1);
+});

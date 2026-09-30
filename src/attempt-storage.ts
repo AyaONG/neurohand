@@ -1,5 +1,5 @@
 import { parseRingSettings } from './ring';
-import { isFingerTip, PAIR_RULES } from './opposition';
+import { isPairKey, pairOf, pairRules, PAIR_RULES, type FingerPair } from './opposition';
 import type { Attempt, AttemptLog, AttemptMetrics } from './attempts';
 
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -28,8 +28,15 @@ function parseAttempt(v: unknown, active: boolean): Attempt | null {
       !number(s.targetRadiusRatio) || s.targetRadiusRatio === 0 || s.targetRadiusRatio > 1 ||
       !number(s.maxActiveMs) || s.maxActiveMs === 0 || !number(m.progress) || m.progress > 1) return null;
   const pair = v.exerciseId === 'opposition';
-  if (pair && (!isFingerTip(s.pairTip) || !count(s.sequenceIndex) || s.partialRatio !== PAIR_RULES.partialRatio ||
-      s.maxActiveMs !== PAIR_RULES.maxActiveMs || v.rulesVersion !== PAIR_RULES.version)) return null;
+  if (pair && (!isPairKey(s.pairTip) || !count(s.sequenceIndex) || s.partialRatio !== PAIR_RULES.partialRatio ||
+      s.maxActiveMs !== PAIR_RULES.maxActiveMs || v.rulesVersion !== pairRules(s.pairTip).version)) return null;
+  if (pair && s.pair !== undefined && (!Array.isArray(s.pair) || JSON.stringify(s.pair) !== JSON.stringify(pairOf(s.pairTip)) ||
+      s.pairRule !== pairRules(s.pairTip).version)) return null;
+  if (pair && typeof s.pairTip === 'string' && s.pair === undefined) return null;
+  if (s.movementPair !== undefined || s.movementStartDistance !== undefined) {
+    if (!pair || !Array.isArray(s.movementPair) || s.movementPair.length !== 2 || s.movementPair[0] >= s.movementPair[1] ||
+        !s.movementPair.every((t: unknown) => [4,8,12,16,20].includes(t as number)) || !number(s.movementStartDistance)) return null;
+  }
   if (v.endReason === 'skip' && (!pair || v.outcome !== 'cancelled' || m.kind !== 'skipped')) return null;
   const ring = v.exerciseId === 'ring' ? parseRingSettings(s.ring) : null;
   if (v.exerciseId === 'ring' && (!ring || v.rulesVersion !== ring.rulesVersion || s.maxActiveMs !== ring.maxActiveMs || s.target !== 1)) return null;
@@ -53,6 +60,8 @@ function parseAttempt(v: unknown, active: boolean): Attempt | null {
     recognizerVersion: v.recognizerVersion, hand: v.hand, rulesVersion: v.rulesVersion,
     settings: { target: s.target, holdTargetMs: s.holdTargetMs, targetRadiusRatio: s.targetRadiusRatio, maxActiveMs: s.maxActiveMs,
       ...(ring ? { ring } : {}),
+      ...(pair && s.movementPair ? { movementPair: [...s.movementPair] as unknown as FingerPair, movementStartDistance: s.movementStartDistance } : {}),
+      ...(pair && s.pair ? { pair: [...s.pair] as unknown as FingerPair, pairRule: s.pairRule } : {}),
       ...(pair ? { pairTip: s.pairTip, sequenceIndex: s.sequenceIndex, partialRatio: s.partialRatio } : {}) },
     startedAt: v.startedAt, lastObservedAt: v.lastObservedAt, endedAt: v.endedAt, outcome: v.outcome, endReason: v.endReason,
     activeMs: v.activeMs, validTrackingMs: v.validTrackingMs,

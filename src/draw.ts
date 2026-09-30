@@ -1,5 +1,5 @@
 import { screenPoint, ringLayout, ringPoint, markAngle, RING_RULES, type RingTip } from './ring';
-import type { FingerTip } from './opposition';
+import type { FingerTip, FingerPair } from './opposition';
 import { HandLandmarker } from "@mediapipe/tasks-vision";
 import type { Landmark, Point, Reading } from "./types";
 import { sceneModel, type SceneInput } from "./scenes";
@@ -15,6 +15,7 @@ export type DebugOptions = {
   target?: Point & { r: number; progress: number };
   scene?: SceneInput;
   pairTip?: FingerTip;
+  pair?: FingerPair;
   ring?: { tip: RingTip; marks: number };
 };
 
@@ -151,8 +152,8 @@ export function drawHandOverlay(
       }
       ctx.strokeStyle = handColor;
       ctx.stroke(bones);
-      if (config.pairTip) {
-        for (const tip of [4, config.pairTip]) circle(ctx, pts[tip], Math.max(13, Math.min(width, height) * 0.025), 'rgba(251,191,36,.35)', '#fcd34d');
+      if (config.pair || config.pairTip) {
+        for (const tip of config.pair ?? [4, config.pairTip!]) circle(ctx, pts[tip], Math.max(13, Math.min(width, height) * 0.025), 'rgba(251,191,36,.35)', '#fcd34d');
       }
       const errors = new Set(reading?.error?.joints ?? []);
       // Error joints are drawn last so adjacent normal points cannot cover them.

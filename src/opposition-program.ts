@@ -2,10 +2,11 @@ import { goalLink, goalRows, successText } from './goals';
 import type { Program, ProgramFrame } from './program';
 import type { Attempt, AttemptEndReason, AttemptOutcome } from './attempts';
 import { closeActive, finishAttempt, interruptAttempt, observeAttempt, observedOutcome, startAttempt } from './attempts';
-import { consumesPair, currentPair, PAIR_RULES as R, PAIR_THRESHOLDS, pairTask, readOpposition, settleOpposition } from './opposition';
+import { consumesPair, currentPair, PAIR_RULES as R, ALL_PAIR_KEYS, experimentalPair, pairRules, pairOf, pairDistances, pairTask, readOpposition, settleOpposition } from './opposition';
 
 export type OppositionState = { baseline: number | null; openSince: number | null;
   intentSince: number | null; intentWall: string | null; closeSince: number | null; returnSince: number | null;
+  baselineDistances?: Record<string, number>; movementKey?: import('./opposition').PairKey;
   samples: { at: number; distance: number }[] };
 export const emptyOppositionState = (): OppositionState => ({ baseline: null, openSince: null,
   intentSince: null, intentWall: null, closeSince: null, returnSince: null, samples: [] });
@@ -27,16 +28,19 @@ function terminal(p: Program, outcome: AttemptOutcome, reason: AttemptEndReason,
 }
 function newAttempt(p: Program, wallTime: string, skipped = false): Attempt {
   const tip = currentPair(p.session), state = p.oppositionState;
+  const movementKey = state.movementKey ?? tip;
   return { attemptId: crypto.randomUUID(), ...goalLink(p.session), exerciseId: 'opposition', protocolVersion: p.session.protocolId,
-    recognizerVersion: R.recognizerVersion, hand: p.session.hand, rulesVersion: R.version,
+    recognizerVersion: p.session.recognitionVersion, hand: p.session.hand, rulesVersion: pairRules(tip).version,
     settings: { target: p.session.opposition!.sequence.length, holdTargetMs: p.session.settings.holdTargetMs,
       targetRadiusRatio: p.session.settings.targetRadiusRatio, maxActiveMs: R.maxActiveMs,
-      pairTip: tip, sequenceIndex: p.session.opposition!.cursor, partialRatio: R.partialRatio },
+      ...(skipped ? {} : { movementPair: pairOf(movementKey),
+        movementStartDistance: movementKey === tip ? state.baseline! : state.baselineDistances![String(movementKey)] }),
+      pairTip: tip, pair: pairOf(tip), pairRule: pairRules(tip).version, sequenceIndex: p.session.opposition!.cursor, partialRatio: R.partialRatio },
     startedAt: skipped ? wallTime : state.intentWall!, lastObservedAt: wallTime, endedAt: null, outcome: null, endReason: null,
     activeMs: skipped ? 0 : p.lastTimestamp! - state.intentSince!, validTrackingMs: skipped ? 0 : p.lastTimestamp! - state.intentSince!,
     interruptions: { count: 0, durationMs: 0 },
     metrics: skipped ? { kind: 'skipped', progress: 0 } : { kind: 'closure', startDistance: state.baseline!,
-      successDistance: PAIR_THRESHOLDS[tip].close, bestDistance: state.baseline!, progress: 0 } };
+      successDistance: pairRules(tip).close, bestDistance: state.baseline!, progress: 0 } };
 }
 
 export function finishOppositionAttempt(p: Program, wallTime: string): Program {
@@ -55,7 +59,7 @@ export function stepOppositionProgram(previous: Program, frame: ProgramFrame): P
   if (previous.session.status !== 'in_progress' || previous.phase === 'intro' || !Number.isFinite(now) ||
       (previous.lastTimestamp !== null && now <= previous.lastTimestamp)) return previous;
   const g = frame.fullHand ? frame.geometry : null;
-  const reading = g ? readOpposition(g, currentPair(previous.session)) : null;
+  const reading = g ? readOpposition(g, currentPair(previous.session), previous.oppositionState.baselineDistances) : null;
   if (previous.phase === 'paused') {
     return previous.pauseReason === 'tracking' && reading?.open ? restartOpposition(previous, 'pause') : previous;
   }
@@ -77,11 +81,14 @@ export function stepOppositionProgram(previous: Program, frame: ProgramFrame): P
   }
   p = { ...p, lastValidTimestamp: now, missingSince: null };
   let state = { ...p.oppositionState, samples: [...p.oppositionState.samples] };
-  const tip = currentPair(p.session), distance = g.nd(4, tip), close = PAIR_THRESHOLDS[tip].close;
+  const tip = currentPair(p.session), distance = g.nd(...pairOf(tip)), rule = pairRules(tip), close = rule.close;
   const sample = () => {
     state.samples.push({ at: now, distance });
     while (state.samples.length > 1 && state.samples[1].at <= now - R.filterMs) state.samples.shift();
   };
+  if (experimentalPair(tip) && reading?.error?.code === 'AMBIGUOUS_PAIR' && p.session.attempts!.active) {
+    return terminal(p, 'unscorable', 'tracking', frame.wallTime);
+  }
   if (p.session.opposition!.awaitingRelease) {
     state.openSince = reading!.open ? state.openSince ?? now : null;
     if (state.openSince !== null && now - state.openSince >= R.readyMs) {
@@ -95,22 +102,32 @@ export function stepOppositionProgram(previous: Program, frame: ProgramFrame): P
     const last = p.session.attempts!.records.at(-1);
     const retryBaseline = last?.goalId && last.settings.sequenceIndex === p.session.opposition!.cursor && last.metrics.kind === 'closure'
       ? last.metrics.startDistance : null;
-    if (!reading!.open || (retryBaseline !== null && distance < retryBaseline - R.minRange / 4)) return { ...p, phase: 'preparing', oppositionState: emptyOppositionState() };
+    const movement = last?.settings.movementPair;
+    const movementNotReturned = last?.goalId && last.settings.sequenceIndex === p.session.opposition!.cursor && movement &&
+      g.nd(...movement) < last.settings.movementStartDistance! - rule.minRange / 4;
+    if (!reading!.open || movementNotReturned || (retryBaseline !== null && distance < retryBaseline - rule.minRange / 4)) return { ...p, phase: 'preparing', oppositionState: emptyOppositionState() };
     state.openSince ??= now; sample();
     if (now - state.openSince >= R.readyMs) {
       const values = state.samples.map(s => s.distance).sort((a, b) => a - b);
       const baseline = values[Math.floor(values.length / 2)];
-      if (baseline - close >= R.minRange) state = { ...state, baseline, samples: [], openSince: null };
+      if (baseline - close >= rule.minRange) state = { ...state, baseline, baselineDistances: pairDistances(g), samples: [], openSince: null };
     }
     return { ...p, phase: state.baseline === null ? 'preparing' : 'exercise', oppositionState: state };
   }
   if (reading!.error) state.samples = []; else sample();
   let justStarted = false;
   if (!p.session.attempts!.active) {
-    const moved = (state.baseline - distance) / (state.baseline - close) >= R.intentRatio;
+    const moved = (state.baseline - distance) / (state.baseline - close) >= rule.intentRatio;
     if ((!moved && reading!.error?.code !== 'WRONG_FINGER') || reading!.error?.code === 'AMBIGUOUS_PAIR') return { ...p, oppositionState: { ...state, intentSince: null, intentWall: null } };
+    const movementKey = moved && !reading!.error ? tip : ALL_PAIR_KEYS.find(key => key !== tip &&
+      state.baselineDistances && state.baselineDistances[String(key)] - g.nd(...pairOf(key)) >= Math.max(0.1, pairRules(key).minRange) &&
+      g.nd(...pairOf(key)) < pairRules(key).close) ?? tip;
+    if (state.movementKey !== undefined && state.movementKey !== movementKey) {
+      state.intentSince = null; state.intentWall = null;
+    }
+    state.movementKey = movementKey;
     state.intentSince ??= now; state.intentWall ??= frame.wallTime;
-    if (now - state.intentSince < R.intentMs) return { ...p, oppositionState: state };
+    if (now - state.intentSince < rule.intentMs) return { ...p, oppositionState: state };
     p = { ...p, oppositionState: state };
     p = { ...p, session: { ...p.session, attempts: startAttempt(p.session.attempts!, newAttempt(p, frame.wallTime)) } };
     justStarted = true;
@@ -124,10 +141,10 @@ export function stepOppositionProgram(previous: Program, frame: ProgramFrame): P
   const attempts = observeAttempt(p.session.attempts!, a.attemptId, justStarted || !contiguous ? 0 : gap, frame.wallTime, metrics);
   p = { ...p, session: settleOpposition({ ...p.session, attempts }) };
   state.closeSince = reading!.closed ? state.closeSince ?? now : null;
-  const returned = reading!.open && (state.baseline - distance) / (state.baseline - close) <= R.intentRatio / 2;
+  const returned = reading!.open && (state.baseline - distance) / (state.baseline - close) <= rule.intentRatio / 2;
   state.returnSince = returned ? state.returnSince ?? now : null;
   p = { ...p, oppositionState: state };
-  if (state.closeSince !== null && now - state.closeSince >= R.confirmMs) return terminal(p, 'completed', 'confirmed', frame.wallTime);
+  if (state.closeSince !== null && now - state.closeSince >= rule.confirmMs) return terminal(p, 'completed', 'confirmed', frame.wallTime);
   if (attempts.active!.activeMs >= R.maxActiveMs) return terminal(p, observedOutcome(attempts.active!), 'timeout', frame.wallTime);
   if (state.returnSince !== null && now - state.returnSince >= R.readyMs) return terminal(p, observedOutcome(attempts.active!), 'returned', frame.wallTime);
   return p;

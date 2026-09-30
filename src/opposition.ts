@@ -14,13 +14,38 @@ export const PAIR_THRESHOLDS: Readonly<Record<FingerTip, { close: number; open: 
   8: Object.freeze({ close: 0.26, open: 0.55 }), 12: Object.freeze({ close: 0.26, open: 0.55 }),
   16: Object.freeze({ close: 0.26, open: 0.55 }), 20: Object.freeze({ close: 0.26, open: 0.55 }),
 });
-export type OppositionPlan = { allowed: FingerTip[]; sequence: FingerTip[]; cursor: number; awaitingRelease: boolean; rulesVersion: string };
+export const EXTRA_PAIR_KEYS = ['8-12', '8-16', '8-20', '12-16', '12-20', '16-20'] as const;
+export type PairKey = FingerTip | typeof EXTRA_PAIR_KEYS[number];
+export type Tip = 4 | FingerTip;
+export type FingerPair = readonly [Tip, Tip];
+export const PAIR_CATALOG: readonly { id: PairKey; tips: FingerPair; experimental: boolean }[] = [
+  { id: 8, tips: [4,8], experimental: false }, { id: 12, tips: [4,12], experimental: false },
+  { id: 16, tips: [4,16], experimental: false }, { id: 20, tips: [4,20], experimental: false },
+  { id: '8-12', tips: [8,12], experimental: true }, { id: '8-16', tips: [8,16], experimental: true },
+  { id: '8-20', tips: [8,20], experimental: true }, { id: '12-16', tips: [12,16], experimental: true },
+  { id: '12-20', tips: [12,20], experimental: true }, { id: '16-20', tips: [16,20], experimental: true },
+];
+export const ALL_PAIR_KEYS: readonly PairKey[] = PAIR_CATALOG.map(p => p.id);
+export function pairOf(key: PairKey): FingerPair {
+  const pair = PAIR_CATALOG.find(p => p.id === key);
+  if (!pair) throw new Error('Unknown pair');
+  return pair.tips;
+}
+export const pairLabel = (key: PairKey) => pairOf(key).map(t => t === 4 ? 'большой' : FINGER_NAMES[t]).join(' + ');
+export const experimentalPair = (key: PairKey) => typeof key === 'string';
+export const isPairKey = (v: unknown): v is PairKey => ALL_PAIR_KEYS.includes(v as PairKey);
 export const isFingerTip = (value: unknown): value is FingerTip => FINGER_TIPS.includes(value as FingerTip);
-export function createOppositionPlan(selected: FingerTip[], random = Math.random): OppositionPlan {
-  const allowed = FINGER_TIPS.filter(tip => selected.includes(tip));
-  if (!allowed.length || selected.some(tip => !isFingerTip(tip))) throw new Error('Выбери хотя бы одну пару');
-  const sequence: FingerTip[] = [];
-  // A shuffled block contains each allowed pair once; exact balance across two blocks.
+// Experimental screen-proximity thresholds, independently versioned; not a contact sensor.
+export const EXPERIMENTAL_PAIR_RULES = Object.freeze({ version: 'free-pairs-v1', close: 0.12, open: 0.25,
+  minRange: 0.14, confirmMs: 300, intentRatio: 0.18, intentMs: 180, overlap: 0.025, maxDepthDifference: 0.18 });
+export function pairRules(key: PairKey) {
+  return { ...PAIR_RULES, ...(experimentalPair(key) ? EXPERIMENTAL_PAIR_RULES : PAIR_THRESHOLDS[key as FingerTip]) };
+}
+export type OppositionPlan = { allowed: PairKey[]; sequence: PairKey[]; cursor: number; awaitingRelease: boolean; rulesVersion: string };
+export function createOppositionPlan(selected: PairKey[], random = Math.random): OppositionPlan {
+  const allowed = ALL_PAIR_KEYS.filter(tip => selected.includes(tip));
+  if (!allowed.length || selected.some(tip => !isPairKey(tip))) throw new Error('Выбери хотя бы одну пару');
+  const sequence: PairKey[] = [];
   for (let round = 0; round < PAIR_RULES.repeats; round++) {
     const block = [...allowed];
     for (let i = block.length - 1; i > 0; i--) {
@@ -30,31 +55,43 @@ export function createOppositionPlan(selected: FingerTip[], random = Math.random
     }
     sequence.push(...block);
   }
-  return { allowed, sequence, cursor: 0, awaitingRelease: false, rulesVersion: PAIR_RULES.version };
+  return { allowed, sequence, cursor: 0, awaitingRelease: false, rulesVersion: allowed.some(experimentalPair) ? 'mixed-pairs-v2' : PAIR_RULES.version };
 }
 export function parseOppositionPlan(v: any): OppositionPlan | null {
-  if (!v || !Array.isArray(v.allowed) || !v.allowed.length || !v.allowed.every(isFingerTip) ||
+  if (!v || !Array.isArray(v.allowed) || !v.allowed.length || !v.allowed.every(isPairKey) ||
       new Set(v.allowed).size !== v.allowed.length || !Array.isArray(v.sequence) ||
       v.sequence.length !== v.allowed.length * PAIR_RULES.repeats ||
-      !v.sequence.every((t: unknown) => isFingerTip(t) && v.allowed.includes(t)) ||
-      !v.allowed.every((t: FingerTip) => v.sequence.filter((tip: FingerTip) => tip === t).length === PAIR_RULES.repeats) ||
+      !v.sequence.every((t: unknown) => isPairKey(t) && v.allowed.includes(t)) ||
+      !v.allowed.every((t: PairKey) => v.sequence.filter((tip: PairKey) => tip === t).length === PAIR_RULES.repeats) ||
       !Number.isSafeInteger(v.cursor) || v.cursor < 0 || v.cursor >= v.sequence.length ||
-      typeof v.awaitingRelease !== 'boolean' || v.rulesVersion !== PAIR_RULES.version) return null;
+      typeof v.awaitingRelease !== 'boolean' ||
+      v.rulesVersion !== (v.allowed.some(experimentalPair) ? 'mixed-pairs-v2' : PAIR_RULES.version)) return null;
   return { allowed: [...v.allowed], sequence: [...v.sequence], cursor: v.cursor, awaitingRelease: v.awaitingRelease, rulesVersion: v.rulesVersion };
 }
-export const currentPair = (s: Session): FingerTip => s.opposition!.sequence[s.opposition!.cursor];
-export const pairTask = (tip: FingerTip) => tip === 20 ? 'Соедини большой палец и мизинец' : `Соедини большой и ${FINGER_NAMES[tip]} пальцы`;
+export const currentPair = (s: Session): PairKey => s.opposition!.sequence[s.opposition!.cursor];
+export const pairTask = (key: PairKey) => experimentalPair(key)
+  ? `Сблизь кончики: ${pairLabel(key)}. Экспериментальный режим; касание не измеряется`
+  : key === 20 ? 'Соедини большой палец и мизинец' : `Соедини большой и ${FINGER_NAMES[key as FingerTip]} пальцы`;
+export const pairDistances = (g: HandGeometry): Record<string, number> => Object.fromEntries(ALL_PAIR_KEYS.map(key => [key, g.nd(...pairOf(key))]));
 
-/** A target-specific validator. Never call the base index-pinch validator for this mode. */
-export function readOpposition(g: HandGeometry, tip: FingerTip): Reading {
-  const { close, open } = PAIR_THRESHOLDS[tip];
-  const distance = g.nd(4, tip);
-  const wrong = FINGER_TIPS.filter(other => other !== tip && g.nd(4, other) < PAIR_THRESHOLDS[other].close);
-  if (wrong.length) return { open: false, closed: false, error: {
-    code: distance < close ? 'AMBIGUOUS_PAIR' : 'WRONG_FINGER', joints: [4, ...wrong],
-    message: distance < close ? 'Не удаётся различить пару. Разведи пальцы и повтори' : `Сомкнута другая пара. Разведи пальцы. ${pairTask(tip)}`,
+/** Target-relative proximity only. No requirement to straighten unrelated fingers. */
+export function readOpposition(g: HandGeometry, key: PairKey, baseline?: Record<string, number>): Reading {
+  const rule = pairRules(key), [a, b] = pairOf(key), distance = g.nd(a, b);
+  const experimental = experimentalPair(key);
+  const ambiguous = experimental && distance < rule.close && (
+    distance < EXPERIMENTAL_PAIR_RULES.overlap ||
+    g.depthDifference(a, b) > EXPERIMENTAL_PAIR_RULES.maxDepthDifference ||
+    ([4, ...FINGER_TIPS] as Tip[]).some(t => t !== a && t !== b && Math.min(g.nd(a, t), g.nd(b, t)) < rule.close));
+  if (ambiguous) return { open: false, closed: false, error: { code: 'AMBIGUOUS_PAIR', joints: [a, b],
+    message: 'Кончики перекрываются или не различимы. Разведи выбранные пальцы и поверни кисть' } };
+  const wrong = ALL_PAIR_KEYS.filter(other => other !== key && g.nd(...pairOf(other)) < pairRules(other).close &&
+    (baseline ? baseline[String(other)] - g.nd(...pairOf(other)) >= Math.max(0.1, pairRules(other).minRange)
+      : !experimental && typeof other === 'number'));
+  if (wrong.length && (!experimental || distance >= rule.close)) return { open: false, closed: false, error: {
+    code: distance < rule.close ? 'AMBIGUOUS_PAIR' : 'WRONG_FINGER', joints: [...new Set(wrong.flatMap(k => [...pairOf(k)]))],
+    message: distance < rule.close ? 'Не удаётся различить пару. Разведи пальцы и повтори' : `Сомкнута другая пара. Разведи пальцы. ${pairTask(key)}`,
   } };
-  return { open: distance > open, closed: distance < close, error: null };
+  return { open: distance > rule.open, closed: distance < rule.close, error: null };
 }
 export const consumesPair = (a: Attempt): boolean => a.exerciseId === 'opposition' &&
   ((a.goalId ? a.outcome === 'completed' : ['completed', 'partial', 'incomplete'].includes(a.outcome ?? '')) || a.endReason === 'skip');

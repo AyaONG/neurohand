@@ -43,12 +43,21 @@
       <label class="training-choice">Выбрать занятие <select id="training-choice"><option value="guided">Базовая программа: 5 / 5 / 3</option><option id="option-pairs" value="opposition">Найди пару</option><option id="option-ring" value="ring">Обведи кольцо</option></select></label>
       <fieldset id="ring-options" hidden><legend>Кончик для кольца · одна попытка до 15 секунд</legend><label>Палец <select id="ring-tip"><option value="8">Указательный</option><option value="12">Средний</option><option value="16">Безымянный</option><option value="20">Мизинец</option><option value="4">Большой</option></select></label></fieldset>
       <fieldset id="pair-options" hidden>
-        <legend>С каким пальцем соединять большой? Выбери доступные движения</legend>
-        <label><input type="checkbox" id="pair-8" checked> Указательный</label>
-        <label><input type="checkbox" id="pair-12" checked> Средний</label>
-        <label><input type="checkbox" id="pair-16"> Безымянный</label>
-        <label><input type="checkbox" id="pair-20"> Мизинец</label>
-        <p>По 2 задания на выбранную пару. До 10 секунд движения на попытку; можно закончить раньше или пропустить задание.</p>
+        <legend>Выбери удобные пары пальцев</legend>
+        <label><input type="checkbox" id="pair-8" checked> Большой + указательный</label>
+        <label><input type="checkbox" id="pair-12" checked> Большой + средний</label>
+        <label><input type="checkbox" id="pair-16"> Большой + безымянный</label>
+        <label><input type="checkbox" id="pair-20"> Большой + мизинец</label>
+        <details><summary>Экспериментальные пары без большого пальца</summary>
+          <p>Выбери только удобные движения. Оценивается сближение на экране, не физическое касание. Эти пары ещё требуют проверки камерой.</p>
+          <label><input type="checkbox" id="pair-8-12"> Указательный + средний</label>
+          <label><input type="checkbox" id="pair-8-16"> Указательный + безымянный</label>
+          <label><input type="checkbox" id="pair-8-20"> Указательный + мизинец</label>
+          <label><input type="checkbox" id="pair-12-16"> Средний + безымянный</label>
+          <label><input type="checkbox" id="pair-12-20"> Средний + мизинец</label>
+          <label><input type="checkbox" id="pair-16-20"> Безымянный + мизинец</label>
+        </details>
+        <p>По 2 цели на выбранную пару. После неполной попытки можно повторить ту же цель. До 10 секунд движения на попытку; можно закончить раньше или пропустить задание.</p>
       </fieldset>
       <p class="setup-note">Сядь удобно, направь камеру на руку и двигайся в комфортном диапазоне. Сначала покажи кисть целиком и подготовь пальцы к выбранному заданию.</p>
     </section>

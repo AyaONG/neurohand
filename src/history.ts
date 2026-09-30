@@ -41,6 +41,7 @@ function table(headers: string[], rows: string[][]): HTMLElement {
   t.append(body); wrapper.append(t); return wrapper;
 }
 export function renderHistory(container: HTMLElement, store: ProgressStore, onBack: () => void, filter: HistoryFilter = defaultFilter(), page = 0, focusId?: string): void {
+  const debug = typeof location !== 'undefined' && new URLSearchParams(location.search).get('debug') === '1';
   refreshers.set(container, () => renderHistory(container, store, onBack, filter, page, ''));
   const heading = element('h2', 'Мой прогресс'); heading.tabIndex = -1;
   const back = element('button', 'К тренировке'); back.id = 'btn-history-back'; back.addEventListener('click', onBack);
@@ -66,7 +67,7 @@ export function renderHistory(container: HTMLElement, store: ProgressStore, onBa
     value => ({ ...filter, hand: value as HistoryFilter['hand'], seriesId: '' }));
   const unique = new Map<string, Session>();
   matching.forEach(s => { const key = conditionsKey(s, filter.exercise); if (!unique.has(key)) unique.set(key, s); });
-  select('history-series', 'Одинаковые условия', [['', 'Все настройки'], ...[...unique.values()].map(s => [s.id, `Как занятие ${stamp(s)} · ${hands[s.hand]} · ${conditionLabel(s)}`] as [string, string])], filter.seriesId,
+  select('history-series', 'Одинаковые условия', [['', 'Все настройки'], ...[...unique.values()].map(s => [s.id, `Как занятие ${stamp(s)} · ${hands[s.hand]} · ${conditionLabel(s, debug)}`] as [string, string])], filter.seriesId,
     value => ({ ...filter, seriesId: value }));
   container.append(controls, element('p', 'Статус занятия описывает завершение маршрута. Статусы попыток ниже показывают фактическое выполнение.'));
   if (store.data.history.length && !history.length) container.append(element('p', 'По выбранным фильтрам занятий нет. Измени упражнение или руку.'));
@@ -96,7 +97,7 @@ export function renderHistory(container: HTMLElement, store: ProgressStore, onBa
       // The historical result is read-only; its action returns to the list, never starts a camera.
       const action = details.querySelector<HTMLButtonElement>('#btn-new');
       if (action) action.textContent = 'К списку истории';
-      details.append(element('p', `Начало: ${new Date(s.startedAt).toLocaleString('ru-RU')}. Протокол: ${s.protocolId}. Распознавание: ${s.recognitionVersion}. Рука: ${hands[s.hand]}.`));
+      details.append(element('p', `Начало: ${new Date(s.startedAt).toLocaleString('ru-RU')}. ${debug ? `Протокол: ${s.protocolId}. Распознавание: ${s.recognitionVersion}. ` : ''}Рука: ${hands[s.hand]}.`));
     });
     container.append(button);
   }
