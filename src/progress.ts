@@ -66,11 +66,12 @@ export function comparableResults(a: Session, b: Session, exercise: ExerciseFilt
   return knownRules(a, exercise) && knownRules(b, exercise) && a.status === 'completed' && b.status === 'completed' && a.hand !== 'unspecified' &&
     selectedIds(a, exercise).length > 0 && conditionsKey(a, exercise) === conditionsKey(b, exercise);
 }
-export type HistoryFilter = { exercise: ExerciseFilter; hand: Session['hand'] | 'all'; seriesId: string };
+export type HistoryFilter = { from?: string; to?: string; exercise: ExerciseFilter; hand: Session['hand'] | 'all'; seriesId: string };
 export const defaultFilter = (): HistoryFilter => ({ exercise: 'all', hand: 'all', seriesId: '' });
 export function filterHistory(history: Session[], filter: HistoryFilter): Session[] {
   const reference = history.find(s => s.id === filter.seriesId);
-  return history.filter(s => selectedIds(s, filter.exercise).length && (filter.hand === 'all' || s.hand === filter.hand) &&
+  const day = (s: Session) => { const d = new Date(s.endedAt ?? s.startedAt); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+  return history.filter(s => (!filter.from || day(s) >= filter.from) && (!filter.to || day(s) <= filter.to) && selectedIds(s, filter.exercise).length && (filter.hand === 'all' || s.hand === filter.hand) &&
     (!reference || conditionsKey(s, filter.exercise) === conditionsKey(reference, filter.exercise)))
     .sort((a, b) => Date.parse(b.endedAt!) - Date.parse(a.endedAt!));
 }

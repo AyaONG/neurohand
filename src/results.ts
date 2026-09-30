@@ -1,3 +1,4 @@
+import { pdfButton } from './report-actions';
 import { CLOSURE_LABELS } from './flow';
 import { goalRows, successText } from './goals';
 import { attemptDetail, attemptText, ringMetric } from './progress';
@@ -104,5 +105,6 @@ export function renderResults(container: HTMLElement, session: Session, onResume
     note.textContent = ringMetric(session) + ' Измеряется экранный путь кончика, не изолированное движение пальца.';
     container.append(note);
   }
+  container.append(pdfButton([session]));
   heading.focus();
 }

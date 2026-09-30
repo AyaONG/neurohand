@@ -1,3 +1,4 @@
+import { configureReportOwner, pdfButton } from './report-actions';
 import { MovementEvents } from './movement-feedback';
 import { closeGoal } from './flow';
 import { routeSession, nextRouteSession, type Route } from './route';
@@ -95,6 +96,7 @@ const historyButton = document.querySelector<HTMLButtonElement>("#btn-history")!
 const storageNotice = document.querySelector<HTMLElement>("#storage-notice")!;
 let sync: SyncEngine | null = null;
 const profiles = new Profiles();
+configureReportOwner(() => { const ticket = profiles.ticket(); return () => profiles.accepts(ticket); });
 let store = profiles.store;
 let program = store.data.current ? pauseProgram(createProgram(store.data.current), "results") : createProgram();
 let mode: ExerciseId = program.session.currentExercise;
@@ -275,6 +277,7 @@ function showResults(): void {
     const summary = document.createElement('p');
     summary.textContent = `Маршрут: ${linked.length} из ${route.blocks.length} блоков завершено. Выполнено целей: ${linked.reduce((n,s) => n + (s.attempts?.records.filter(a => a.outcome === 'completed').length ?? 0), 0)}.`;
     results.append(summary);
+    if (linked.length > 1) results.append(pdfButton(linked, { filterLabel: "Все завершённые блоки выбранного маршрута" }));
   }
   if (program.session.status === 'in_progress' && !modeEnabled(program.session.mode)) {
     const resume = results.querySelector<HTMLButtonElement>('#btn-resume');
@@ -710,7 +713,7 @@ exportButton.addEventListener('click', () => {
     const text = exportAggregates(store.data.history);
     const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = 'neurohand-aggregates.json'; link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000); transferMessage('Экспортированы финальные агрегаты текущего профиля. Токенов и видео в файле нет.');
+    setTimeout(() => URL.revokeObjectURL(url), 1000); transferMessage('Резервная копия истории скачана. Для чтения результатов используй отчёт PDF в итогах или истории.');
   } catch (e) { transferMessage(e instanceof Error ? e.message : 'Экспорт не выполнен'); }
 });
 importFile.addEventListener('change', async () => {

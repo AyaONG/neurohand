@@ -21,9 +21,11 @@
     <button id="btn-cloud-more" hidden>Загрузить ещё из аккаунта</button>
     <button id="btn-import-guest" hidden>Добавить гостевые занятия</button>
     <details id="settings"><summary>Настройки</summary>
-      <p>Скачай историю для переноса в другой браузер. Загрузи файл без входа в аккаунт, затем выбери занятия для добавления в аккаунт.</p>
-      <button id="btn-export-json">Скачать историю</button>
-      <label>Загрузить историю <input id="import-json" type="file" accept="application/json,.json"></label>
+      <details><summary>Резервная копия и перенос</summary>
+      <p>Скачай резервную копию JSON для переноса в другой браузер. Загрузи файл без входа в аккаунт, затем выбери занятия для добавления в аккаунт.</p>
+      <button id="btn-export-json">Скачать резервную копию (.json)</button>
+      <label>Восстановить из резервной копии <input id="import-json" type="file" accept="application/json,.json"></label>
+      <p>PDF предназначен для чтения. Восстановление возможно только из резервной копии JSON.</p></details>
     </details>
     <p id="transfer-status" role="status"></p><div id="guest-import" hidden></div>
   </section>

@@ -1,3 +1,4 @@
+import { pdfButton } from './report-actions';
 import { activeSeconds, attemptText, comparableResults, conditionsKey, conditionLabel, defaultFilter, EXERCISE_LABELS, filterHistory, metricText, type ExerciseFilter, type HistoryFilter } from './progress';
 import type { Session } from './session';
 import { type ProgressStore } from './storage';
@@ -69,6 +70,11 @@ export function renderHistory(container: HTMLElement, store: ProgressStore, onBa
   matching.forEach(s => { const key = conditionsKey(s, filter.exercise); if (!unique.has(key)) unique.set(key, s); });
   select('history-series', 'Одинаковые условия', [['', 'Все настройки'], ...[...unique.values()].map(s => [s.id, `Как занятие ${stamp(s)} · ${hands[s.hand]} · ${conditionLabel(s, debug)}`] as [string, string])], filter.seriesId,
     value => ({ ...filter, seriesId: value }));
+  for (const [key,title] of [['from','С даты'],['to','По дату']] as const) {
+    const label=element('label',title), input=document.createElement('input');input.type='date';input.id=`history-${key}`;input.value=filter[key] ?? '';
+    input.addEventListener('change',()=>renderHistory(container,store,onBack,{...filter,[key]:input.value},0,input.id));label.append(input);controls.append(label);
+  }
+  container.append(pdfButton(history,{exercise:filter.exercise,filterLabel:`Период: ${filter.from || 'начало истории'} - ${filter.to || 'сегодня'}. Упражнение: ${filter.exercise === 'all' ? 'все' : EXERCISE_LABELS[filter.exercise]}. Рука: ${filter.hand === 'all' ? 'все' : hands[filter.hand]}. ${filter.seriesId ? 'Только выбранные одинаковые условия.' : 'Все настройки.'} Выгружена вся загруженная выборка, не только видимая страница.`}));
   container.append(controls, element('p', 'Статус занятия описывает завершение маршрута. Статусы попыток ниже показывают фактическое выполнение.'));
   if (store.data.history.length && !history.length) container.append(element('p', 'По выбранным фильтрам занятий нет. Измени упражнение или руку.'));
 
