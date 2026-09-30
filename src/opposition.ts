@@ -6,9 +6,11 @@ import type { Attempt } from './attempts';
 export const FINGER_TIPS = [8, 12, 16, 20] as const;
 export type FingerTip = typeof FINGER_TIPS[number];
 export const FINGER_NAMES: Record<FingerTip, string> = { 8: 'указательный', 12: 'средний', 16: 'безымянный', 20: 'мизинец' };
-export const PAIR_RULES = Object.freeze({ version: 'opposition-v1', recognizerVersion: 'opposition-norm-v1',
+export const PAIR_RULES = Object.freeze({ version: 'opposition-v1', recognizerVersion: 'opposition-norm-v2',
   repeats: 2, readyMs: 250, intentMs: 150, confirmMs: 180, filterMs: 120,
   intentRatio: 0.1, partialRatio: 0.2, minRange: 0.2, maxActiveMs: 10000, maxGapMs: 250, lostPauseMs: 2000 });
+// Valid observations must resume continuously before measuring again.
+export const PAIR_AMBIGUITY = Object.freeze({ timeoutMs: 600, recoveryMs: 250 });
 // Separate from PINCH_CLOSE/PINCH_OPEN. Initial values require real-camera acceptance for each pair.
 export const PAIR_THRESHOLDS: Readonly<Record<FingerTip, { close: number; open: number }>> = Object.freeze({
   8: Object.freeze({ close: 0.26, open: 0.55 }), 12: Object.freeze({ close: 0.26, open: 0.55 }),
@@ -70,7 +72,7 @@ export function parseOppositionPlan(v: any): OppositionPlan | null {
 }
 export const currentPair = (s: Session): PairKey => s.opposition!.sequence[s.opposition!.cursor];
 export const pairTask = (key: PairKey) => experimentalPair(key)
-  ? `Сблизь кончики: ${pairLabel(key)}. Экспериментальный режим; касание не измеряется`
+  ? `Сблизь кончики: ${pairLabel(key)}. Оставь маленький видимый зазор между кончиками, не накладывай их друг на друга. Экспериментальный режим; касание не измеряется`
   : key === 20 ? 'Соедини большой палец и мизинец' : `Соедини большой и ${FINGER_NAMES[key as FingerTip]} пальцы`;
 export const pairDistances = (g: HandGeometry): Record<string, number> => Object.fromEntries(ALL_PAIR_KEYS.map(key => [key, g.nd(...pairOf(key))]));
 
@@ -78,18 +80,25 @@ export const pairDistances = (g: HandGeometry): Record<string, number> => Object
 export function readOpposition(g: HandGeometry, key: PairKey, baseline?: Record<string, number>): Reading {
   const rule = pairRules(key), [a, b] = pairOf(key), distance = g.nd(a, b);
   const experimental = experimentalPair(key);
-  const ambiguous = experimental && distance < rule.close && (
-    distance < EXPERIMENTAL_PAIR_RULES.overlap ||
-    g.depthDifference(a, b) > EXPERIMENTAL_PAIR_RULES.maxDepthDifference ||
-    ([4, ...FINGER_TIPS] as Tip[]).some(t => t !== a && t !== b && Math.min(g.nd(a, t), g.nd(b, t)) < rule.close));
-  if (ambiguous) return { open: false, closed: false, error: { code: 'AMBIGUOUS_PAIR', joints: [a, b],
-    message: 'Кончики перекрываются или не различимы. Разведи выбранные пальцы и поверни кисть' } };
+  if (experimental && distance < rule.close) {
+    if (distance < EXPERIMENTAL_PAIR_RULES.overlap) return { open: false, closed: false, error: {
+      code: 'AMBIGUOUS_PAIR', ambiguityReason: 'overlap', joints: [a,b],
+      message: 'Кончики накладываются друг на друга. Немного разведи их: оставь маленький видимый зазор' } };
+    if (g.depthDifference(a,b) > EXPERIMENTAL_PAIR_RULES.maxDepthDifference) return { open: false, closed: false, error: {
+      code: 'AMBIGUOUS_PAIR', ambiguityReason: 'depth', joints: [a,b],
+      message: 'Один кончик выглядит ближе к камере. Поверни кисть, чтобы оба кончика были рядом на одной глубине' } };
+    const third = ([4, ...FINGER_TIPS] as Tip[]).filter(t => t !== a && t !== b && Math.min(g.nd(a,t), g.nd(b,t)) < rule.close);
+    if (third.length) return { open: false, closed: false, error: {
+      code: 'AMBIGUOUS_PAIR', ambiguityReason: 'third_finger', joints: [a,b,...third],
+      message: 'Рядом с выбранной парой ещё один кончик. Отведи его немного в сторону, чтобы выбранные два были различимы' } };
+  }
   const wrong = ALL_PAIR_KEYS.filter(other => other !== key && g.nd(...pairOf(other)) < pairRules(other).close &&
     (baseline ? baseline[String(other)] - g.nd(...pairOf(other)) >= Math.max(0.1, pairRules(other).minRange)
       : !experimental && typeof other === 'number'));
   if (wrong.length && (!experimental || distance >= rule.close)) return { open: false, closed: false, error: {
-    code: distance < rule.close ? 'AMBIGUOUS_PAIR' : 'WRONG_FINGER', joints: [...new Set(wrong.flatMap(k => [...pairOf(k)]))],
-    message: distance < rule.close ? 'Не удаётся различить пару. Разведи пальцы и повтори' : `Сомкнута другая пара. Разведи пальцы. ${pairTask(key)}`,
+    code: distance < rule.close ? 'AMBIGUOUS_PAIR' : 'WRONG_FINGER',
+    ...(distance < rule.close ? { ambiguityReason: 'multiple_pairs' as const } : {}), joints: [...new Set(wrong.flatMap(k => [...pairOf(k)]))],
+    message: distance < rule.close ? 'Одновременно сближены несколько пар. Разведи их и повтори движение только выбранной парой' : `Сомкнута другая пара. Разведи пальцы. ${pairTask(key)}`,
   } };
   return { open: distance > rule.open, closed: distance < rule.close, error: null };
 }

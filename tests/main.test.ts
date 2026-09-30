@@ -116,7 +116,7 @@ function pinch() {
   for (let i = 0; i < 6; i++) frame(fixture("pinch_closed"));
 }
 
-beforeEach(() => { vi.resetModules(); vi.clearAllMocks(); syncMock.rows = []; nextFrame = null; time = 1000; });
+beforeEach(() => { vi.stubEnv("VITE_SUPABASE_URL", ""); vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", ""); vi.resetModules(); vi.clearAllMocks(); syncMock.rows = []; nextFrame = null; time = 1000; });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); authMock.state.initialId = null; });
 
 describe("app wiring with simulated camera frames", () => {
@@ -424,13 +424,13 @@ it('selects only the middle pair, highlights it, rejects the index and finishes 
   expect(elements.tabs.hidden).toBe(true);
   for (let i = 0; i < 30; i++) frame(pairPose(8));
   expect(elements.hint.textContent).toContain('средний'); expect(elements.hint.classes.has('error')).toBe(true);
-  expect(elements.score.textContent).toContain('Полностью: 0');
+  expect(elements.score.textContent).toContain('Выполнено: 0');
   for (let i = 0; i < 20; i++) frame(pairPose(12));
   expect(mocks.draw.mock.lastCall![3].pairTip).toBe(12);
   expect(mocks.draw.mock.lastCall![3].scene).toBeUndefined();
-  expect(elements.score.textContent).toContain('Задания: 1 / 2 · Полностью: 1');
+  expect(elements.score.textContent).toContain('Выполнено: 1 / 2 · Пропущено: 0 · Попытки: 1 оценённых');
   for (let i = 0; i < 160; i++) frame(pairPose(12));
-  expect(elements.score.textContent).toContain('Задания: 1 / 2');
+  expect(elements.score.textContent).toContain('Выполнено: 1 / 2');
   for (let i = 0; i < 30; i++) frame(fixture('grip_open'));
   for (let i = 0; i < 20; i++) frame(pairPose(12, 0.4));
   expect(elements['btn-finish-attempt'].disabled).toBe(false);
@@ -459,9 +459,9 @@ it('requires at least one pair before opening the camera and allows explicit ski
   Object.assign(elements['pair-20'], { checked: true });
   await elements['btn-start'].fire('click'); prepare();
   await elements['btn-skip-pair'].fire('click');
-  expect(elements.score.textContent).toContain('Задания: 1 / 2 · Полностью: 0');
+  expect(elements.score.textContent).toContain('Выполнено: 0 / 2 · Пропущено: 1 · Попытки: 0 оценённых');
   await elements['btn-skip-pair'].fire('click');
-  expect(elements.score.textContent).toContain('Задания: 1 / 2');
+  expect(elements.score.textContent).toContain('Выполнено: 0 / 2 · Пропущено: 1');
   for (let i = 0; i < 30; i++) frame(fixture('grip_open'));
   await elements['btn-skip-pair'].fire('click');
   expect(elements.results.children[2].children[0].textContent).toContain('0 / 2');

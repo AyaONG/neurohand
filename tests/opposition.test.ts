@@ -111,7 +111,7 @@ describe('pair program and terminal attempts', () => {
     expect(h.p.session.exercises.opposition!.reps).toBe(0);
     h.run(400); h.frame(geometry(12)); h.run(1000);
     expect(h.p.session.attempts!.records).toHaveLength(1);
-    expect(h.p.session.attempts!.records[0].outcome).toBe('incomplete');
+    expect(h.p.session.attempts!.records[0].outcome).toBe('unscorable');
     expect(h.p.session.attempts!.active).toBeNull();
     h.close(); expect(h.p.session.exercises.opposition!.reps).toBe(1);
   });

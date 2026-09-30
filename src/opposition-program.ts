@@ -2,13 +2,13 @@ import { goalLink, goalRows, successText } from './goals';
 import type { Program, ProgramFrame } from './program';
 import type { Attempt, AttemptEndReason, AttemptOutcome } from './attempts';
 import { closeActive, finishAttempt, interruptAttempt, observeAttempt, observedOutcome, startAttempt } from './attempts';
-import { consumesPair, currentPair, PAIR_RULES as R, ALL_PAIR_KEYS, experimentalPair, pairRules, pairOf, pairDistances, pairTask, readOpposition, settleOpposition } from './opposition';
+import { consumesPair, currentPair, PAIR_RULES as R, ALL_PAIR_KEYS, PAIR_AMBIGUITY, pairRules, pairOf, pairDistances, pairTask, readOpposition, settleOpposition } from './opposition';
 
-export type OppositionState = { baseline: number | null; openSince: number | null;
+export type OppositionState = { ambiguitySince: number | null; recoverySince: number | null; baseline: number | null; openSince: number | null;
   intentSince: number | null; intentWall: string | null; closeSince: number | null; returnSince: number | null;
   baselineDistances?: Record<string, number>; movementKey?: import('./opposition').PairKey;
   samples: { at: number; distance: number }[] };
-export const emptyOppositionState = (): OppositionState => ({ baseline: null, openSince: null,
+export const emptyOppositionState = (): OppositionState => ({ ambiguitySince: null, recoverySince: null, baseline: null, openSince: null,
   intentSince: null, intentWall: null, closeSince: null, returnSince: null, samples: [] });
 const reset = (p: Program): Program => ({ ...p, oppositionState: emptyOppositionState(),
   lastTimestamp: null, lastValidTimestamp: null, missingSince: null, reading: null, success: null });
@@ -45,8 +45,9 @@ function newAttempt(p: Program, wallTime: string, skipped = false): Attempt {
 
 export function finishOppositionAttempt(p: Program, wallTime: string): Program {
   if (p.session.mode !== 'opposition' || p.session.status !== 'in_progress' || !p.session.attempts?.active) return p;
-  return terminal(p, p.missingSince !== null ? 'unscorable' : observedOutcome(p.session.attempts.active),
-    p.missingSince !== null ? 'tracking' : 'manual', wallTime);
+  const uncertain = p.missingSince !== null || p.oppositionState.ambiguitySince !== null;
+  return terminal(p, uncertain ? 'unscorable' : observedOutcome(p.session.attempts.active),
+    uncertain ? 'tracking' : 'manual', wallTime);
 }
 export function skipOppositionPair(p: Program, wallTime: string): Program {
   if (p.session.mode !== 'opposition' || p.session.status !== 'in_progress' || p.session.attempts?.active || p.session.opposition!.awaitingRelease) return p;
@@ -86,8 +87,25 @@ export function stepOppositionProgram(previous: Program, frame: ProgramFrame): P
     state.samples.push({ at: now, distance });
     while (state.samples.length > 1 && state.samples[1].at <= now - R.filterMs) state.samples.shift();
   };
-  if (experimentalPair(tip) && reading?.error?.code === 'AMBIGUOUS_PAIR' && p.session.attempts!.active) {
-    return terminal(p, 'unscorable', 'tracking', frame.wallTime);
+  if (reading?.error?.code === 'AMBIGUOUS_PAIR') {
+    const first = state.ambiguitySince === null;
+    state = { ...state, ambiguitySince: state.ambiguitySince ?? now, recoverySince: null,
+      samples: [], closeSince: null, returnSince: null, openSince: null, intentSince: null, intentWall: null };
+    p = { ...p, oppositionState: state, success: null, session: { ...p.session,
+      attempts: interruptAttempt(p.session.attempts, contiguous ? gap : 0, first) } };
+    if (now - state.ambiguitySince! >= PAIR_AMBIGUITY.timeoutMs) return terminal(p, 'unscorable', 'tracking', frame.wallTime);
+    return p;
+  }
+  if (state.ambiguitySince !== null) {
+    // Do not bridge the invalid interval with a metric, timer, or confirmation sample.
+    state.recoverySince ??= now;
+    p = { ...p, success: null, session: { ...p.session,
+      attempts: interruptAttempt(p.session.attempts, contiguous ? gap : 0, false) } };
+    if (now - state.recoverySince < PAIR_AMBIGUITY.recoveryMs) return { ...p, oppositionState: state };
+    state = { ...state, ambiguitySince: null, recoverySince: null, samples: [],
+      closeSince: null, returnSince: null, openSince: null, intentSince: null, intentWall: null };
+    // This boundary frame belongs to recovery. Measurement starts on the next valid interval.
+    return { ...p, oppositionState: state };
   }
   if (p.session.opposition!.awaitingRelease) {
     state.openSince = reading!.open ? state.openSince ?? now : null;
@@ -118,7 +136,7 @@ export function stepOppositionProgram(previous: Program, frame: ProgramFrame): P
   let justStarted = false;
   if (!p.session.attempts!.active) {
     const moved = (state.baseline - distance) / (state.baseline - close) >= rule.intentRatio;
-    if ((!moved && reading!.error?.code !== 'WRONG_FINGER') || reading!.error?.code === 'AMBIGUOUS_PAIR') return { ...p, oppositionState: { ...state, intentSince: null, intentWall: null } };
+    if (!moved && reading!.error?.code !== 'WRONG_FINGER') return { ...p, oppositionState: { ...state, intentSince: null, intentWall: null } };
     const movementKey = moved && !reading!.error ? tip : ALL_PAIR_KEYS.find(key => key !== tip &&
       state.baselineDistances && state.baselineDistances[String(key)] - g.nd(...pairOf(key)) >= Math.max(0.1, pairRules(key).minRange) &&
       g.nd(...pairOf(key)) < pairRules(key).close) ?? tip;
@@ -154,6 +172,8 @@ export function oppositionInstruction(p: Program): string {
   if (p.phase === 'paused') return p.pauseReason === 'tracking'
     ? 'Рука потеряна. Верни её и разведи пальцы: повторим ту же пару' : 'Тренировка на паузе. Нажми «Продолжить»';
   const task = pairTask(currentPair(p.session));
+  if (p.oppositionState.ambiguitySince !== null) return p.reading?.error?.message ??
+    'Кончики снова видны. Подержи их раздельно: оценка продолжится после устойчивого изображения';
   if (p.session.opposition!.awaitingRelease) {
     const a = p.session.attempts!.records.find(a => a.settings.sequenceIndex === p.session.opposition!.cursor && consumesPair(a));
     const row = goalRows(p.session.attempts)?.find(g => g.goalId === a?.goalId);

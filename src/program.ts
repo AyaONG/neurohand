@@ -61,13 +61,13 @@ export function beginProgram(p: Program, reason: "resize" | "pause" = "pause"): 
 
 export function pauseProgram(p: Program, reason: PauseReason, wallTime?: string): Program {
   if (p.session.status !== "in_progress") return p;
-  const session = settleRing(settleOpposition(pauseSession({ ...p.session, attempts: closeActive(p.session.attempts, p.missingSince !== null ? "tracking" : reason === "manual" ? "pause" : reason, wallTime) })));
+  const session = settleRing(settleOpposition(pauseSession({ ...p.session, attempts: closeActive(p.session.attempts, (p.missingSince !== null || (p.session.mode === "opposition" && p.oppositionState.ambiguitySince !== null)) ? "tracking" : reason === "manual" ? "pause" : reason, wallTime) })));
   return clearTransient({ ...p, phase: session.status === 'completed' ? 'summary' : 'paused', pauseReason: reason, session });
 }
 
 export function stopProgram(p: Program, wallTime: string): Program {
   if (p.session.status !== "in_progress") return p;
-  return clearTransient({ ...p, phase: "summary", session: finishSession({ ...p.session, attempts: closeActive(p.session.attempts, p.missingSince !== null ? "tracking" : "manual", wallTime) }, "stopped", wallTime) });
+  return clearTransient({ ...p, phase: "summary", session: finishSession({ ...p.session, attempts: closeActive(p.session.attempts, (p.missingSince !== null || (p.session.mode === "opposition" && p.oppositionState.ambiguitySince !== null)) ? "tracking" : "manual", wallTime) }, "stopped", wallTime) });
 }
 
 export function guidedTarget(width: number, height: number, completed: number, radiusRatio = 0.12): Target {

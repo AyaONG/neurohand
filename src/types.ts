@@ -7,6 +7,7 @@ export type ErrorCode = "WRONG_FINGER" | "PINKY_INCOMPLETE" | "AMBIGUOUS_PAIR";
 
 export type HandError = {
   code: ErrorCode;
+  ambiguityReason?: 'overlap' | 'depth' | 'third_finger' | 'multiple_pairs';
   joints: number[];   // индексы landmarks, которые подсветить красным
   message: string;    // текст подсказки
 };

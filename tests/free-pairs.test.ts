@@ -3,7 +3,7 @@ import { expect, it } from 'vitest';
 import { HandGeometry } from '../src/geometry';
 import { ALL_PAIR_KEYS, EXTRA_PAIR_KEYS, pairOf, pairRules, readOpposition, createOppositionPlan, type PairKey } from '../src/opposition';
 import { createOppositionSession } from '../src/session';
-import { beginProgram, createProgram, stepProgram } from '../src/program';
+import { beginProgram, createProgram, stepProgram, pauseProgram, stopProgram } from '../src/program';
 import { finishOppositionAttempt } from '../src/opposition-program';
 import { parseSession, ProgressStore } from '../src/storage';
 import { goalRows } from '../src/goals';
@@ -88,4 +88,84 @@ it('retains partial progress on the same pair, rejects stationary noise, and mar
   h.run(800, pose('8-12'));
   expect(goalRows(h.p.session.attempts)![0].toSuccess).toBe(2);
   expect(pairRules('8-12').close).not.toBe(pairRules(8).close);
+});
+
+it('distinguishes overlap, depth mismatch, third fingertip and simultaneous pairs with actionable hints', () => {
+  const overlap = readOpposition(pose('8-12', 0), '8-12').error!;
+  const depth = readOpposition(pose('8-12', 0.08, false, 0.2), '8-12').error!;
+  const lm = structuredClone(base);
+  lm[8] = { ...lm[12], y: lm[12].y + 8/480 }; lm[16] = { ...lm[12] };
+  const third = readOpposition(HandGeometry.create(lm,640,480)!, '8-12').error!;
+  lm[4] = { ...lm[12] }; lm[8] = { ...lm[12] };
+  const multiple = readOpposition(HandGeometry.create(lm,640,480)!,12).error!;
+  expect([overlap.ambiguityReason, depth.ambiguityReason, third.ambiguityReason, multiple.ambiguityReason])
+    .toEqual(['overlap','depth','third_finger','multiple_pairs']);
+  expect(overlap.message).toContain('зазор');
+  expect(depth.message).toContain('глубине');
+  expect(third.message).toContain('ещё один');
+  expect(multiple.message).toContain('несколько пар');
+});
+
+it('a single ambiguous frame freezes metrics and resets success confirmation; recovery keeps the same attempt', () => {
+  const h = harness('8-12'); h.run(500); h.run(400,pose('8-12',0.2));
+  h.run(200,pose('8-12'));
+  const before = structuredClone(h.p.session.attempts!.active!);
+  h.run(20,pose('8-12',0));
+  expect(h.p.session.attempts!.records).toHaveLength(0);
+  expect(h.p.session.attempts!.active).toMatchObject({ attemptId:before.attemptId, activeMs:before.activeMs, metrics:before.metrics });
+  expect(h.p.oppositionState.closeSince).toBeNull();
+  h.run(280,pose('8-12'));
+  expect(h.p.session.attempts!.active!.activeMs).toBe(before.activeMs);
+  expect(h.p.session.attempts!.active!.metrics).toEqual(before.metrics);
+  h.run(200,pose('8-12'));
+  expect(h.p.session.attempts!.records).toHaveLength(0);
+  h.run(160,pose('8-12'));
+  expect(h.p.session.attempts!.records[0]).toMatchObject({ attemptId:before.attemptId, outcome:'completed', interruptions:{count:1} });
+});
+
+it('persistent overlap preserves measured progress as unscorable once; reopening prepares a retry of the same goal', () => {
+  const h = harness('8-12'); h.run(500); h.run(400,pose('8-12',0.2));
+  const before = structuredClone(h.p.session.attempts!.active!);
+  h.run(640,pose('8-12',0));
+  expect(h.p.session.attempts!.records).toHaveLength(1);
+  expect(h.p.session.attempts!.records[0]).toMatchObject({ outcome:'unscorable', activeMs:before.activeMs, metrics:before.metrics });
+  expect(h.p.session.opposition!.cursor).toBe(0);
+  h.run(1000,pose('8-12',0)); h.run(1000,pose('8-12'));
+  expect(h.p.session.attempts!.records).toHaveLength(1);
+  expect(h.p.session.attempts!.active).toBeNull();
+  h.run(800); h.run(800,pose('8-12'));
+  expect(h.p.session.attempts!.records[1]).toMatchObject({ goalId:before.goalId, outcome:'completed', attemptOrder:2 });
+  expect(goalRows(h.p.session.attempts)![0].toSuccess).toBe(1);
+});
+
+it('flickering ambiguity cannot accumulate confirmation or active time across unreliable intervals', () => {
+  const h = harness('8-12'); h.run(500); h.run(400,pose('8-12',0.2));
+  const ms = h.p.session.attempts!.active!.activeMs;
+  for (let i=0;i<8;i++) { h.run(20,pose('8-12',0)); h.run(80,pose('8-12')); }
+  expect(h.p.session.exercises.opposition!.reps).toBe(0);
+  expect(h.p.session.attempts!.records[0]).toMatchObject({ outcome:'unscorable', activeMs:ms });
+});
+
+it('manual finish during the ambiguity recovery window cannot turn uncertainty into a human failure', () => {
+  const h = harness('8-12'); h.run(500); h.run(400,pose('8-12',0.2));
+  h.run(20,pose('8-12',0)); h.run(100,pose('8-12'));
+  h.p = finishOppositionAttempt(h.p,wall(h.time));
+  expect(h.p.session.attempts!.records[0].outcome).toBe('unscorable');
+  expect(h.p.session.opposition!.cursor).toBe(0);
+});
+
+it.each([['8-12','opposition-mixed-norm-v2'],[12,'opposition-norm-v1']] as const)('keeps old %s recognizer snapshots readable without rewriting them', (key,version) => {
+  const h=harness(key); h.run(500); h.run(800,pose(key)); h.run(800); h.run(800,pose(key));
+  const legacy=structuredClone(h.p.session); legacy.recognitionVersion=version;
+  for (const a of legacy.attempts!.records) a.recognizerVersion=version;
+  expect(parseSession(legacy)).toEqual(legacy);
+});
+
+it.each(['pause','stop'] as const)('%s during uncertainty preserves the observed attempt as unscorable', action => {
+  const h=harness('8-12'); h.run(500); h.run(400,pose('8-12',0.2));
+  const before=structuredClone(h.p.session.attempts!.active!);
+  h.run(20,pose('8-12',0));
+  h.p=action==='pause' ? pauseProgram(h.p,'manual',wall(h.time)) : stopProgram(h.p,wall(h.time));
+  expect(h.p.session.attempts!.records[0]).toMatchObject({ outcome:'unscorable', activeMs:before.activeMs, metrics:before.metrics });
+  expect(parseSession(h.p.session)).not.toBeNull();
 });

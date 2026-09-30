@@ -142,7 +142,7 @@ function updateScore(): void {
     const tip = currentPair(program.session), counts = pairCounts(program.session), plan = program.session.opposition!;
     taskTitle.textContent = `Найди пару · ${pairLabel(tip)}`;
     taskDescription.textContent = pairTask(tip);
-    score.textContent = `Задания: ${counts.consumed} / ${plan.sequence.length} · Полностью: ${counts.completed}`;
+    score.textContent = `Выполнено: ${counts.completed} / ${plan.sequence.length} · Пропущено: ${counts.skipped} · Попытки: ${counts.completed + counts.partial + counts.incomplete} оценённых`;
     programStatus.textContent = currentGoalText(program.session) || `Пара ${plan.cursor + 1} из ${plan.sequence.length}`;
     pairGuide.setAttribute('aria-label', pairTask(tip));
     for (const point of [4, ...FINGER_TIPS]) document.querySelector(`#guide-tip-${point}`)!.classList.toggle('selected', pairOf(tip).includes(point as 4 | 8 | 12 | 16 | 20));

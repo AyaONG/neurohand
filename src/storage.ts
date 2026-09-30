@@ -61,7 +61,7 @@ export function parseSession(v: unknown): Session | null {
     if (projected.status !== v.status || JSON.stringify(projected.exercises.ring) !== JSON.stringify(v.exercises.ring) || records.filter(a => a.outcome === 'completed').length > 1) return null;
     exercises.ring = projected.exercises.ring!;
   } else if (v.mode === 'opposition') {
-    if (!opposition || !attempts || !attempts.historyComplete || v.recognitionVersion !== (opposition.rulesVersion === 'mixed-pairs-v2' ? 'opposition-mixed-norm-v2' : PAIR_RULES.recognizerVersion)) return null;
+    if (!opposition || !attempts || !attempts.historyComplete || !(opposition.rulesVersion === 'mixed-pairs-v2' ? ['opposition-mixed-norm-v2', 'opposition-mixed-norm-v3'] : ['opposition-norm-v1', PAIR_RULES.recognizerVersion]).includes(v.recognitionVersion)) return null;
     const records = [...attempts.records, ...(attempts.active ? [attempts.active] : [])];
     const used = new Set<number>();
     for (const a of records) {

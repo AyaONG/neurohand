@@ -101,7 +101,7 @@ export function finishSession(session: Session, status: "completed" | "stopped",
 
 export function createOppositionSession(allowed: PairKey[], id = crypto.randomUUID(), startedAt = new Date().toISOString(), random = Math.random): Session {
   const base = createSession(id, startedAt), opposition = createOppositionPlan(allowed, random);
-  return { ...base, mode: 'opposition', protocolId: 'opposition-v1', recognitionVersion: opposition.rulesVersion === 'mixed-pairs-v2' ? 'opposition-mixed-norm-v2' : PAIR_RULES.recognizerVersion,
+  return { ...base, mode: 'opposition', protocolId: 'opposition-v1', recognitionVersion: opposition.rulesVersion === 'mixed-pairs-v2' ? 'opposition-mixed-norm-v3' : PAIR_RULES.recognizerVersion,
     currentExercise: 'opposition', opposition, attempts: { ...emptyAttempts(), runs: createRuns([['opposition', opposition.sequence.length]]) }, exercises: { ...base.exercises,
       opposition: { reps: 0, target: opposition.sequence.length, started: false, activeMs: 0, promptEpisodes: {}, bestHoldMs: null } } };
 }
