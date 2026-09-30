@@ -1,3 +1,4 @@
+import { transitionDuration } from './flow';
 import { sameSession } from './session-equality';
 import { comparableResults } from './progress';
 import { parseRingSettings, settleRing, finishesRing } from './ring';
@@ -90,7 +91,7 @@ export function parseSession(v: unknown): Session | null {
     const f = attempts.flow, goal = f.goals[f.cursor];
     const run = attempts.runs!.find(r => r.goalIds.includes(goal.goalId))!;
     if (run.exerciseId !== v.currentExercise || (opposition && (opposition.cursor !== run.goalIds.indexOf(goal.goalId) || opposition.awaitingRelease))) return null;
-    if (v.status === 'completed' && (!f.goals.every(g => g.reason) || f.transitionMs !== 3000 || attempts.active)) return null;
+    if (v.status === 'completed' && (!f.goals.every(g => g.reason) || f.transitionMs !== transitionDuration(f) || attempts.active)) return null;
     const route = attempts.route;
     if (route && (route.blocks[route.index].id !== v.id || route.blocks[route.index].mode !== v.mode)) return null;
   }

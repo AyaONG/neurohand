@@ -1,4 +1,4 @@
-import { afterFlow, settleFlow, usableFrame, CLOSURE_LABELS, FLOW_RULES } from './flow';
+import { afterFlow, settleFlow, usableFrame, CLOSURE_LABELS, transitionDuration } from './flow';
 import { settleRing } from './ring';
 import { emptyRingState, restartRing, stepRingProgram, ringInstruction, type RingState } from './ring-program';
 import { emptyOppositionState, restartOpposition, stepOppositionProgram, oppositionInstruction, type OppositionState } from './opposition-program';
@@ -198,7 +198,7 @@ function stepExercise(previous: Program, frame: ProgramFrame): Program {
 
 export function programInstruction(p: Program, now: number): string {
   const f = p.session.attempts?.flow;
-  if (f && p.phase === 'transition') return `${f.visibilityHelp ? 'Не удаётся увидеть движение. Покажи кисть целиком, раздели кончики и улучши освещение. Продолжение после устойчивого изображения' : CLOSURE_LABELS[f.goals[f.cursor].reason!] + '. Далее'} · ${Math.max(1, Math.ceil((FLOW_RULES.transitionMs - f.transitionMs) / 1000))}`;
+  if (f && p.phase === 'transition') return `${f.visibilityHelp ? 'Не удаётся увидеть движение. Покажи кисть целиком, раздели кончики и улучши освещение. Продолжение после устойчивого изображения' : CLOSURE_LABELS[f.goals[f.cursor].reason!] + '. Далее'} · ${Math.min(3, Math.max(1, Math.ceil((transitionDuration(f) - f.transitionMs) / 1000)))}`;
 
   if (p.session.mode === "ring") return ringInstruction(p);
   if (p.session.mode === "opposition") return oppositionInstruction(p);
@@ -227,12 +227,13 @@ export function stepProgram(previous: Program, frame: ProgramFrame): Program {
     const valid = usableFrame(previous, frame);
     const gap = previous.lastTimestamp === null ? 0 : frame.timestampMs - previous.lastTimestamp;
     const dt = valid && previous.lastValidTimestamp === previous.lastTimestamp && gap <= 250 ? gap : 0;
-    const elapsed = Math.min(FLOW_RULES.transitionMs, f.transitionMs + dt);
+    const duration = transitionDuration(f);
+    const elapsed = Math.min(duration, f.transitionMs + dt);
     // Visibility help requires an uninterrupted recovery countdown. Ordinary transitions freeze on loss.
     const nextFlow = { ...f, transitionMs: f.visibilityHelp && !valid ? 0 : elapsed };
     let p: Program = { ...previous, session: { ...session, paused: false, attempts: { ...session.attempts!, flow: nextFlow } },
       phase: 'transition', lastTimestamp: frame.timestampMs, lastValidTimestamp: valid ? frame.timestampMs : null, missingSince: valid ? null : previous.missingSince ?? frame.timestampMs };
-    if (nextFlow.transitionMs < FLOW_RULES.transitionMs) return p;
+    if (nextFlow.transitionMs < duration) return p;
     if (f.cursor === f.goals.length - 1) return { ...p, phase: 'summary', session: { ...p.session, status: 'completed', endedAt: frame.wallTime, paused: true } };
     const cursor = f.cursor + 1, goalId = f.goals[cursor].goalId;
     const run = session.attempts!.runs!.find(r => r.goalIds.includes(goalId))!;

@@ -31,7 +31,7 @@ it('success keeps feedback interval and requires reopening; final route is idemp
   expect(h.p.phase).toBe('transition');expect(h.p.session.exercises.opposition!.reps).toBe(1);
   h.run(6000,geometry(.1));expect(h.p.session.attempts!.records).toHaveLength(1);
   h.run(500);h.run(500,geometry(.1));expect(h.p.phase).toBe('transition');
-  h.run(3500);expect(h.p.phase).toBe('summary');expect(h.p.session.status).toBe('completed');
+  h.run(4500);expect(h.p.phase).toBe('summary');expect(h.p.session.status).toBe('completed');
   const final=h.p;h.run(1000);expect(h.p).toBe(final);
 });
 it('two observed failed movements close one goal without a completed or fake skip; survives reload', () => {
@@ -98,4 +98,11 @@ it('time limit with an active partial preserves observed movement; pause require
  const other=harness();other.run(400);other.run(500);const ms=other.p.session.attempts!.flow!.goals[0].usableMs;
  other.p=beginProgram(pauseProgram(other.p,'visibility',wall(other.time)));other.run(200);
  expect(other.p.session.attempts!.flow!.goals[0].usableMs).toBe(ms);
+});
+
+it('reserves 900 ms for success followed by a full separate three-second transition',()=>{
+ const h=harness();h.run(400);h.run(500,geometry(.1));
+ h.p.session.attempts!.flow!.transitionMs=900;
+ h.run(2980);expect(h.p.session.opposition!.cursor).toBe(0);
+ h.run(20);expect(h.p.session.opposition!.cursor).toBe(1);
 });

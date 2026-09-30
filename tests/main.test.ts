@@ -112,7 +112,7 @@ function frame(lm: Landmark[] | null, dt = 33) {
 function prepare() { for (let i = 0; i < 100; i++) frame(fixture("grip_open")); }
 
 function pinch() {
-  if (elements.hint.textContent.includes("Далее") || (elements.hint.textContent.includes("засчитан") || elements.hint.textContent === "Выполнено")) for (let i=0; i<135; i++) frame(fixture("grip_open"));
+  if (elements.hint.textContent.includes("Далее") || (elements.hint.textContent.includes("засчитан") || elements.hint.textContent === "Выполнено")) for (let i=0; i<165; i++) frame(fixture("grip_open"));
   for (let i = 0; i < 6; i++) frame(fixture("pinch_open"));
   for (let i = 0; i < 6; i++) frame(fixture("pinch_closed"));
 }
@@ -209,14 +209,14 @@ describe("app wiring with simulated camera frames", () => {
     prepare();
     for (let rep = 0; rep < 5; rep++) pinch();
     expect(elements.score.textContent).toBe("Пинцет: 5 / 5");
-    for (let i = 0; i < 135; i++) frame(fixture("grip_open"));
+    for (let i = 0; i < 165; i++) frame(fixture("grip_open"));
     expect(elements.score.textContent).toBe("Эспандер: 0 / 5");
     for (let rep = 0; rep < 5; rep++) {
-      if (rep) for (let i=0; i<135; i++) frame(fixture("grip_open"));
+      if (rep) for (let i=0; i<165; i++) frame(fixture("grip_open"));
       for (let i = 0; i < 6; i++) frame(fixture("grip_open"));
       for (let i = 0; i < 6; i++) frame(fixture("grip_closed"));
     }
-    for (let i = 0; i < 135; i++) frame(fixture("grip_open"));
+    for (let i = 0; i < 165; i++) frame(fixture("grip_open"));
     expect(elements.score.textContent).toBe("Перенос: 0 / 3");
     for (let goal = 0; goal < 3; goal++) {
       const target = mocks.draw.mock.lastCall![3].target;
@@ -232,7 +232,7 @@ describe("app wiring with simulated camera frames", () => {
         expect(mocks.draw.mock.lastCall![3].target.x).not.toBe(target.x);
       }
     }
-    for (let i=0; i<100; i++) frame(fixture("grip_open"));
+    for (let i=0; i<130; i++) frame(fixture("grip_open"));
     expect(elements.results.hidden).toBe(false);
     expect(elements.results.children[0].textContent).toBe("Тренировка завершена");
     const snapshot = elements.results.children[2].children.map(row => row.textContent);

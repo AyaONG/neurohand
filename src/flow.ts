@@ -5,7 +5,7 @@ import { goalRows } from './goals';
 import { settleOpposition, readOpposition, currentPair } from './opposition';
 import { settleRing } from './ring';
 
-export const FLOW_RULES = Object.freeze({ version: 'hands-free-v1', goalMs: 20000, failedLimit: 2, unscorableLimit: 2, transitionMs: 3000, recoveryMs: 3000 });
+export const FLOW_RULES = Object.freeze({ version: 'hands-free-v1', goalMs: 20000, failedLimit: 2, unscorableLimit: 2, feedbackMs: 900, transitionMs: 3000, recoveryMs: 3000 });
 export type Closure = 'success' | 'attempt_limit' | 'time_limit' | 'unscorable_limit' | 'manual_skip';
 export const CLOSURE_LABELS: Record<Closure, string> = { success: 'Выполнено', attempt_limit: 'Лимит двух оценённых попыток', time_limit: 'Время цели истекло', unscorable_limit: 'Не удалось оценить', manual_skip: 'Пропущено вручную' };
 export type GoalProgress = { goalId: string; usableMs: number; ready: boolean; reason: Closure | null; endedAt: string | null };
@@ -16,9 +16,10 @@ export function withFlow(s: Session, automatic = true): Session {
     goals: s.attempts.runs.flatMap(r => r.goalIds.map(goalId => ({ goalId, usableMs: 0, ready: false, reason: null, endedAt: null }))),
     transitionMs: 0, visibilityHelp: false } } };
 }
+export const transitionDuration = (flow: Flow) => FLOW_RULES.transitionMs + (flow.goals[flow.cursor].reason === 'success' ? FLOW_RULES.feedbackMs : 0);
 export function parseFlow(v: any, ids: string[]): Flow | undefined {
   if (!v || v.version !== FLOW_RULES.version || typeof v.automatic !== 'boolean' || !Number.isInteger(v.cursor) || v.cursor < 0 || v.cursor >= ids.length ||
-      !Array.isArray(v.goals) || v.goals.length !== ids.length || typeof v.visibilityHelp !== 'boolean' || !Number.isFinite(v.transitionMs) || v.transitionMs < 0 || v.transitionMs > FLOW_RULES.transitionMs) return;
+      !Array.isArray(v.goals) || v.goals.length !== ids.length || typeof v.visibilityHelp !== 'boolean' || !Number.isFinite(v.transitionMs) || v.transitionMs < 0 || v.transitionMs > FLOW_RULES.transitionMs + FLOW_RULES.feedbackMs) return;
   const goals: GoalProgress[] = [];
   for (const [i,g] of v.goals.entries()) {
     if (!g || g.goalId !== ids[i] || !Number.isFinite(g.usableMs) || g.usableMs < 0 || g.usableMs > FLOW_RULES.goalMs || typeof g.ready !== 'boolean' ||
@@ -26,6 +27,7 @@ export function parseFlow(v: any, ids: string[]): Flow | undefined {
         (i < v.cursor && !g.reason) || (i > v.cursor && (g.reason || g.ready || g.usableMs))) return;
     goals.push({ goalId: g.goalId, usableMs: g.usableMs, ready: g.ready, reason: g.reason, endedAt: g.endedAt });
   }
+  if ((!goals[v.cursor].reason && (v.transitionMs || v.visibilityHelp)) || (goals[v.cursor].reason !== 'success' && v.transitionMs > FLOW_RULES.transitionMs)) return;
   return { version: FLOW_RULES.version, automatic: v.automatic, cursor: v.cursor, goals, transitionMs: v.transitionMs, visibilityHelp: v.visibilityHelp };
 }
 export function closeGoal(s: Session, reason: Closure, wall: string): Session {
