@@ -574,7 +574,7 @@ it('pauses the old owner, clears private views and restores only the new profile
   expect(elements.results.children[2].children[0].textContent).toContain('1 / 5');
   await elements['btn-sign-out'].fire('click');
   expect(elements.history.children).toHaveLength(0); expect(elements.results.children).toHaveLength(0);
-  expect(elements['auth-status'].textContent).toContain('Гость');
+  expect(elements['auth-status'].textContent).toContain('Прогресс сохраняется в этом браузере');
   expect(JSON.parse(memory.getItem(keyA)!).current.exercises.pinch.reps).toBe(1);
 });
 

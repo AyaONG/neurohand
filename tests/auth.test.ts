@@ -78,3 +78,12 @@ it('ignores a stale token refresh from the former account', async () => {
   m.emit('SIGNED_IN', A); m.emit('SIGNED_IN', B); m.emit('TOKEN_REFRESHED', A);
   expect(m.identity).toHaveBeenLastCalledWith(B);
 });
+
+it('exposes a safe debug category for provider failure without exposing credentials', async () => {
+  const m = mock(); await m.controller.start('https://app.example/', vi.fn());
+  m.auth.signInWithOAuth.mockRejectedValueOnce({ code: 'provider_disabled', message: 'private-token' });
+  await m.controller.signIn('http://127.0.0.1:5173', vi.fn());
+  expect(m.view.mock.lastCall![0].diagnostic).toBe('provider');
+  expect(JSON.stringify(m.view.mock.lastCall![0])).not.toContain('private-token');
+  expect(m.auth.signInWithOAuth.mock.lastCall![0].options.redirectTo).toBe('http://127.0.0.1:5173/');
+});

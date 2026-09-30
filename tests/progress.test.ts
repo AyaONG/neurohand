@@ -26,7 +26,7 @@ it('separates final session status from full/partial attempts and unscorable obs
   expect(attemptCounts(settled)).toMatchObject({ evaluated: 1, partial: 1, completed: 0, unscorable: 1 });
   expect(ringMetric(settled)).toContain('Лучший оценённый путь: 8 / 12');
   expect(ringMetric(settled)).toContain('При сбоях наблюдалось до 11 / 12');
-  expect(attemptDetail(settled.attempts!.records[0])).toContain('потеря руки');
+  expect(attemptDetail(settled.attempts!.records[0])).toContain('сбой отслеживания');
 });
 it('keeps skips and cancellation outside evaluated attempts, and reports pair metrics', () => {
   const s = createOppositionSession([12], 'pairs', wall); s.hand = 'left';
@@ -42,7 +42,8 @@ it('keeps skips and cancellation outside evaluated attempts, and reports pair me
   expect(attemptCounts(final)).toMatchObject({ skipped: 1, cancelled: 0, evaluated: 1, partial: 1 });
   expect(metricText(final)).toContain('Пары: 0/2 полностью');
   expect(attemptDetail(skipped)).toContain('Пропущено'); expect(attemptDetail(partial)).toContain('средний');
-  expect(attemptDetail(partial)).toContain('1.00 → 0.60');
+  expect(attemptDetail(partial, true)).toContain('1.00 → 0.60');
+  expect(attemptDetail(partial)).not.toContain('1.00 → 0.60');
 });
 it('does not turn legacy successes into attempts or compare unknown rules', () => {
   const s = createSession('old', wall); s.hand = 'left'; s.attempts = null;

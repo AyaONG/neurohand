@@ -73,12 +73,12 @@ export function filterHistory(history: Session[], filter: HistoryFilter): Sessio
     .sort((a, b) => Date.parse(b.endedAt!) - Date.parse(a.endedAt!));
 }
 export const END_REASONS: Record<AttemptEndReason, string> = { confirmed: 'подтверждено', returned: 'возврат в исходную позу', manual: 'завершено вручную', pause: 'пауза', results: 'просмотр итогов', visibility: 'вкладка скрыта', tracking: 'потеря руки', camera: 'камера недоступна', reload: 'перезагрузка', resize: 'размер экрана изменён', timeout: 'время истекло', skip: 'явный пропуск', off_path: 'выход из коридора / неверное направление', jump: 'скачок координат' };
-export function attemptDetail(a: Attempt): string {
+export function attemptDetail(a: Attempt, debug = false): string {
   const outcomes = { completed: 'Выполнено', partial: 'Выполнено частично', incomplete: 'Попытка не завершена', unscorable: 'Не удалось оценить', cancelled: 'Остановлено' };
   const target = a.exerciseId === 'opposition' ? `Большой + ${FINGER_NAMES[a.settings.pairTip!]}` : a.exerciseId === 'ring' ? `Кольцо · ${RING_NAMES[a.settings.ring!.tip]}` : EXERCISE_LABELS[a.exerciseId];
   const m = a.metrics;
   const metric = m.kind === 'ring' ? `${m.marks} / 12 отметок · ${m.returned ? 'с возвратом' : 'без подтверждённого возврата'}` :
     m.kind === 'hold' ? `удержание ${(m.bestHoldMs / 1000).toFixed(1)} / ${(m.targetMs / 1000).toFixed(1)} с` :
-    m.kind === 'closure' ? `сближение ${m.startDistance.toFixed(2)} → ${m.bestDistance.toFixed(2)} (нормированное расстояние)` : 'без измерения движения';
-  return `${target} — ${a.endReason === 'skip' ? 'Пропущено' : a.outcome ? outcomes[a.outcome] : 'Активна'} · ${metric} · активное время ${(a.activeMs / 1000).toFixed(1)} с · ${a.endReason ? END_REASONS[a.endReason] : 'в процессе'}`;
+    m.kind === 'closure' ? debug ? `сближение ${m.startDistance.toFixed(2)} → ${m.bestDistance.toFixed(2)} (нормированное расстояние)` : 'движение пальцев' : 'без измерения движения';
+  return `${target} — ${a.endReason === 'skip' ? 'Пропущено' : a.outcome ? outcomes[a.outcome] : 'Активна'} · ${metric} · активное время ${(a.activeMs / 1000).toFixed(1)} с · ${debug && a.endReason ? a.endReason : a.outcome === 'unscorable' ? 'помешал сбой отслеживания' : ''}`;
 }

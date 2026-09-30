@@ -1,6 +1,5 @@
 import { attemptDetail, attemptText, ringMetric } from './progress';
 import { pairCounts } from './opposition';
-import { attemptSummary } from './attempts';
 import type { Session } from "./session";
 import type { ExerciseId } from "./types";
 
@@ -51,7 +50,8 @@ export function renderResults(container: HTMLElement, session: Session, onResume
   metrics.textContent = `Активное время: ${(activeMs / 1000).toFixed(1)} с.` + (session.mode !== 'guided' ? '' : ` Лучшее удержание: ${((session.exercises.hold.bestHoldMs ?? 0) / 1000).toFixed(1)} с.`);
   const exerciseIds: ExerciseId[] = session.mode === 'ring' ? ['ring'] : session.mode === 'opposition' ? ['opposition'] : ['pinch', 'grip', 'hold'];
   const prompts = document.createElement("p");
-  prompts.hidden = session.mode !== "guided";
+  const debug = typeof location !== "undefined" && new URLSearchParams(location.search).get("debug") === "1";
+  prompts.hidden = !debug;
   prompts.textContent = exerciseIds.map(id => `${labels[id]} — эпизоды подсказок: ${session.exercises[id]!.started ? Object.values(session.exercises[id]!.promptEpisodes).reduce((a, b) => a + b, 0) : "Не начато"}`).join(". ");
   const notice = document.createElement("p");
   notice.id = "result-storage-status";
@@ -76,14 +76,13 @@ export function renderResults(container: HTMLElement, session: Session, onResume
     item.textContent = `${labels[id]} — ${result.started ? `активное время: ${(result.activeMs / 1000).toFixed(1)} с` : "Не начато"}`;
     details.append(item);
   }
-  const attempts = document.createElement('p');
-  attempts.textContent = attemptSummary(session.attempts, Object.values(session.exercises).reduce((sum, r) => sum + r.reps, 0));
-  container.append(details, attempts, notice, disclaimer);
+  details.hidden = !debug;
+  container.append(details, notice, disclaimer);
   const attemptHeading = document.createElement('h3'); attemptHeading.textContent = 'Статусы попыток';
   const breakdown = document.createElement('p'); breakdown.textContent = attemptText(session);
   const attemptList = document.createElement('ul');
   for (const a of session.attempts?.records ?? []) {
-    const item = document.createElement('li'); item.textContent = attemptDetail(a); attemptList.append(item);
+    const item = document.createElement('li'); item.textContent = attemptDetail(a, debug); attemptList.append(item);
   }
   container.append(attemptHeading, breakdown, attemptList);
   if (session.mode === 'ring') {

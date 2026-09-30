@@ -14,16 +14,16 @@
       <button id="btn-results" aria-controls="results" aria-expanded="false">Итоги</button>
     </nav>
   </header>
-  <section class="auth-panel" aria-label="Вход"><p id="auth-status" role="status">Гость · данные в этом браузере</p><button id="btn-sign-in" hidden>Войти через Google</button><button id="btn-sign-out" hidden>Выйти</button></section>
+  <section class="auth-panel" aria-label="Вход"><p id="auth-status" role="status">Прогресс сохраняется в этом браузере</p><button id="btn-sign-in" hidden>Войти</button><button id="btn-sign-out" hidden>Выйти</button></section>
   <section id="sync-panel" class="sync-panel" aria-label="Сохранение и перенос">
     <p id="sync-status" role="status">В этом браузере</p>
     <button id="btn-sync-retry" hidden>Обновить и повторить синхронизацию</button>
     <button id="btn-cloud-more" hidden>Загрузить ещё из аккаунта</button>
     <button id="btn-import-guest" hidden>Добавить гостевые занятия</button>
-    <details><summary>Перенос JSON между адресами</summary>
-      <p>История localhost не переезжает на публичный сайт автоматически. Экспортируй агрегаты на старом адресе и импортируй файл гостем на новом.</p>
-      <button id="btn-export-json">Экспорт агрегатов текущего профиля</button>
-      <label>Импорт в гостевой профиль <input id="import-json" type="file" accept="application/json,.json"></label>
+    <details id="settings"><summary>Настройки</summary>
+      <p>Скачай историю для переноса в другой браузер. Загрузи файл без входа в аккаунт, затем выбери занятия для добавления в аккаунт.</p>
+      <button id="btn-export-json">Скачать историю</button>
+      <label>Загрузить историю <input id="import-json" type="file" accept="application/json,.json"></label>
     </details>
     <p id="transfer-status" role="status"></p><div id="guest-import" hidden></div>
   </section>

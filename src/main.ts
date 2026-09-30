@@ -593,6 +593,7 @@ function refreshSyncUI(): void {
   if (sync) {
     const saved = store.data.history.filter(s => store.syncState(s.id)?.status === 'saved').length;
     const errors = store.data.history.filter(s => store.syncState(s.id)?.status === 'error').length;
+    syncStatus.hidden = !account;
     syncStatus.textContent = (sync.isOnline ? '' : 'Нет сети · ') + (account ? `Сохранено в аккаунте: ${saved} · Ожидает синхронизации: ${profiles.pending().length} · Ошибки: ${errors}. ${sync.message}` : `${store.durable ? 'В этом браузере' : 'Только в памяти'} · гостевые результаты не отправляются`);
     syncMore.disabled = sync.loading || !sync.more;
     if (!historyPanel.hidden) refreshHistory(historyPanel);
@@ -612,7 +613,7 @@ const signInButton = document.querySelector<HTMLButtonElement>('#btn-sign-in')!;
 const signOutButton = document.querySelector<HTMLButtonElement>('#btn-sign-out')!;
 let authBusy = false;
 const auth = new AuthController(cloud.client, switchProfile, state => {
-  authStatus.textContent = state.text;
+  authStatus.textContent = state.text + (debugEnabled && state.diagnostic && state.diagnostic !== 'none' ? ` · auth:${state.diagnostic}` : '');
   if (state.busy) {
     historyPanel.hidden = results.hidden = stage.hidden = home.hidden = panel.hidden = tabs.hidden = true;
   } else if (authBusy) {
