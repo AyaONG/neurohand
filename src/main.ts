@@ -1,3 +1,4 @@
+import { MovementEvents } from './movement-feedback';
 import { closeGoal } from './flow';
 import { routeSession, nextRouteSession, type Route } from './route';
 import { closeActive } from './attempts';
@@ -116,6 +117,8 @@ let debugEnabled = new URLSearchParams(location.search).get("debug") === "1";
 let tracking: PinchTrackingState = { previousWrongJoint: null, lastValidTimestamp: null };
 let capture: Capture | null = null;
 let sparkFlight: SparkFlight | null = null;
+let movementEvents = new MovementEvents(program.session.attempts);
+const successStar = document.querySelector<HTMLElement>('#success-star');
 const motionPreference = window.matchMedia?.("(prefers-reduced-motion: reduce)");
 let reducedMotion = motionPreference?.matches ?? false;
 motionPreference?.addEventListener("change", event => { reducedMotion = event.matches; });
@@ -183,6 +186,7 @@ function resetTracking(): void {
   capture = null;
   dump.disabled = true;
   sparkFlight = null;
+  if (successStar) successStar.hidden = true;
 }
 
 function resetFrameClock(): void {
@@ -229,6 +233,7 @@ function newTraining(): void {
   stopCamera();
   rememberFinal();
   program = createProgram();
+  movementEvents = new MovementEvents(program.session.attempts);
   sessionStarted = false;
   mode = "pinch";
   handChoice.disabled = false;
@@ -316,7 +321,7 @@ function cameraError(error: unknown): string {
 }
 
 function processFrame(timestampMs: number): void {
-  if (program.phase === "summary" || (program.phase === "paused" && program.pauseReason !== "tracking")) return;
+  if ((program.phase === "paused" && program.pauseReason !== "tracking")) return;
   const width = video.videoWidth;
   const height = video.videoHeight;
   if (canvas.width !== width || canvas.height !== height) {
@@ -342,19 +347,21 @@ function processFrame(timestampMs: number): void {
   const tracked = program.session.mode !== "guided" ? { state: tracking, reading: null } : stepPinchTracking(tracking, g, timestampMs);
   tracking = tracked.state;
   const target = width > 0 && height > 0 ? guidedTarget(width, height, program.session.exercises.hold.reps) : null;
-  const previousSuccess = program.success;
   program = stepProgram(program, {
     timestampMs, wallTime: new Date().toISOString(), geometry: g, fullHand,
     ring: mode === 'ring' ? { width, height, point: g && landmarks ? screenPoint(landmarks[program.session.ring!.tip], width, height) : null } : undefined,
     pinch: tracked.reading, palm: g ? mirrorPoint(g.palmCenter(), width) : null, target,
   });
   persist(timestampMs);
-  if (g && program.success && program.success !== previousSuccess && program.success.exercise === "pinch") {
-    sparkFlight = { at: program.success.at, action: program.success.reps,
-      from: mirroredPinchPoint(g.pts, width) };
+  const event = movementEvents.update(program.session.attempts, timestampMs);
+  const eventVisible = !!event && timestampMs - event.at < 900;
+  if (successStar) {
+    successStar.hidden = !eventVisible || !event?.completed || !g;
+    if (successStar.dataset.event !== event?.id) successStar.dataset.event = event?.id ?? '';
+    successStar.classList.toggle('still', reducedMotion);
   }
   mode = program.session.currentExercise;
-  if (program.phase === "summary") {
+  if (program.phase === "summary" && !eventVisible) {
     rememberFinal();
     const next = nextRouteSession(program.session, store.data.history);
     if (next && modeEnabled(next.mode)) {
@@ -367,13 +374,13 @@ function processFrame(timestampMs: number): void {
   if (!g || reading?.error) sparkFlight = null;
   const instruction = programInstruction(program, timestampMs);
   const feedback = getFeedback({
-    exercise: mode, timestampMs, visible: !!g, error: reading?.error ?? null,
+    event, exercise: mode, timestampMs, visible: !!g, error: reading?.error ?? null,
     phase: program.fsm.phase, success: program.success, instruction,
     target: program.session.exercises[mode]!.target,
   });
   if (program.phase === "paused") setHint(instruction);
   else if (mode === 'opposition' || mode === 'ring') setHint(feedback.text, feedback.error, feedback.celebrating);
-  else if (!feedback.celebrating && g && (program.phase === "preparing" || program.phase === "transition")) setHint(instruction);
+  else if (!eventVisible && !feedback.celebrating && g && (program.phase === "preparing" || program.phase === "transition")) setHint(instruction);
   else setHint(feedback.text, feedback.error, feedback.celebrating);
   updateScore();
   pauseButton.disabled = false;
@@ -602,6 +609,7 @@ function switchProfile(id: string | null): void {
   store = profiles.switchTo(owner);
   program = store.data.current ? pauseProgram(createProgram(store.data.current), 'results') : createProgram();
   sessionStarted = !!store.data.current; mode = program.session.currentExercise;
+  movementEvents = new MovementEvents(program.session.attempts);
   historyPanel.replaceChildren(); results.replaceChildren();
   ctx.clearRect(0, 0, canvas.width, canvas.height); resetFrameClock();
   handChoice.value = sessionStarted ? program.session.hand : 'unspecified'; handChoice.disabled = sessionStarted;

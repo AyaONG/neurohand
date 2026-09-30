@@ -80,7 +80,7 @@ function memoryStorage() {
     setItem: vi.fn((key: string, value: string) => { values.set(key, value); }) };
 }
 async function setup(search = "", storage = memoryStorage()) {
-  elements = Object.fromEntries(["pair-8-12", "pair-8-16", "pair-8-20", "pair-12-16", "pair-12-20", "pair-16-20", "card-pairs", "card-ring", "option-pairs", "option-ring", "sync-panel", "sync-status", "btn-sync-retry", "btn-cloud-more", "btn-import-guest", "guest-import", "btn-export-json", "import-json", "transfer-status", "auth-status", "btn-sign-in", "btn-sign-out", "video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "ring-options", "ring-tip", "btn-choose-ring", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
+  elements = Object.fromEntries(["success-star", "pair-8-12", "pair-8-16", "pair-8-20", "pair-12-16", "pair-12-20", "pair-16-20", "card-pairs", "card-ring", "option-pairs", "option-ring", "sync-panel", "sync-status", "btn-sync-retry", "btn-cloud-more", "btn-import-guest", "guest-import", "btn-export-json", "import-json", "transfer-status", "auth-status", "btn-sign-in", "btn-sign-out", "video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "ring-options", "ring-tip", "btn-choose-ring", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
     .map(id => [id, Object.assign(new Element(), { id })]));
   elements.results.hidden = true;
   Object.assign(elements['training-choice'], { value: 'guided' });
@@ -112,7 +112,7 @@ function frame(lm: Landmark[] | null, dt = 33) {
 function prepare() { for (let i = 0; i < 100; i++) frame(fixture("grip_open")); }
 
 function pinch() {
-  if (elements.hint.textContent.includes("Далее") || elements.hint.textContent.includes("засчитан")) for (let i=0; i<135; i++) frame(fixture("grip_open"));
+  if (elements.hint.textContent.includes("Далее") || (elements.hint.textContent.includes("засчитан") || elements.hint.textContent === "Выполнено")) for (let i=0; i<135; i++) frame(fixture("grip_open"));
   for (let i = 0; i < 6; i++) frame(fixture("pinch_open"));
   for (let i = 0; i < 6; i++) frame(fixture("pinch_closed"));
 }
@@ -144,14 +144,15 @@ describe("app wiring with simulated camera frames", () => {
     for (let rep = 1; rep <= 3; rep++) {
       pinch();
       expect(elements.score.textContent).toBe(`Пинцет: ${rep} / 5`);
-      expect(elements.hint.textContent).toBe(`✓ Захват засчитан · ${rep} из 5`);
+      expect(elements.hint.textContent).toBe("Выполнено");
+      expect(elements["success-star"].hidden).toBe(false);
       expect(mocks.draw.mock.lastCall?.[3].success).toBe(true);
       const scene = mocks.draw.mock.lastCall![3].scene;
       expect(scene.completed).toBe(rep);
-      expect(scene.flight.action).toBe(rep);
-      const at = scene.flight.at;
+      expect(scene.flight).toBeNull();
+      const at = elements["success-star"].dataset.event;
       frame(fixture("pinch_closed"));
-      expect(mocks.draw.mock.lastCall![3].scene.flight.at).toBe(at);
+      expect(elements["success-star"].dataset.event).toBe(at);
     }
     for (let i = 0; i < 160; i++) frame(fixture("pinch_closed"));
     expect(elements.score.textContent).toBe("Пинцет: 3 / 5");

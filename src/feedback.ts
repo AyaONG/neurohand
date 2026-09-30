@@ -1,3 +1,4 @@
+import type { MovementEvent } from './movement-feedback';
 import type { ExerciseId, HandError, Phase } from "./types";
 
 export const SUCCESS_COLOR_MS = 500;
@@ -6,6 +7,7 @@ export type SuccessFeedback = { exercise: ExerciseId; reps: number; at: number }
 export type Feedback = { text: string; success: boolean; error: boolean; celebrating: boolean };
 
 export function getFeedback(input: {
+  event?: MovementEvent | null;
   exercise: ExerciseId;
   timestampMs: number;
   visible: boolean;
@@ -21,6 +23,10 @@ export function getFeedback(input: {
       ? "Соедини большой и указательный пальцы"
       : "Согни мизинец вместе с остальными пальцами",
     success: false, error: true, celebrating: false,
+  };
+  const eventAge = input.event ? input.timestampMs - input.event.at : Infinity;
+  if (input.event && input.event.exercise === input.exercise && eventAge >= 0 && eventAge < SUCCESS_MESSAGE_MS) return {
+    text: input.event.text, success: input.event.completed && eventAge < SUCCESS_COLOR_MS, error: false, celebrating: input.event.completed,
   };
   const age = input.success ? input.timestampMs - input.success.at : Infinity;
   if (input.success?.exercise === input.exercise && age >= 0 && age < SUCCESS_MESSAGE_MS) {

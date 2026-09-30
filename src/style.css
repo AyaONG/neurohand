@@ -112,3 +112,9 @@ td { min-width: 90px; }
 .sync-panel details { margin: 12px 0; }
 #guest-import label { display: flex; gap: 10px; align-items: center; padding: 8px 0; }
 #guest-import input { min-width: 22px; min-height: 22px; }
+
+#success-star { position: absolute; z-index: 4; top: 12%; left: 46%; color: #fbbf24; font-size: clamp(44px, 8vw, 82px); text-shadow: 0 2px 14px #172554; pointer-events: none; animation: success-star .9s ease-out; }
+#success-star[hidden] { display: none; }
+#success-star.still { animation: none; }
+@keyframes success-star { from { transform: scale(.7); } 35% { transform: scale(1.15); } to { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { #success-star { animation: none; } }
