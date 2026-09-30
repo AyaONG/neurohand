@@ -1,3 +1,4 @@
+import { routeConditions } from './route';
 import type { Session } from './session';
 import type { ExerciseId } from './types';
 import type { Attempt, AttemptEndReason } from './attempts';
@@ -13,10 +14,11 @@ export const evaluated = (a: Attempt) => ['completed', 'partial', 'incomplete'].
 export function attemptCounts(s: Session, exercise: ExerciseFilter = 'all') {
   const records = selectedAttempts(s, exercise);
   const n = (status: string) => records.filter(a => a.outcome === status).length;
-  const skipped = records.filter(a => a.endReason === 'skip').length;
+  const skippedEvents = records.filter(a => a.endReason === 'skip').length;
+  const skipped = s.attempts?.flow ? s.attempts.flow.goals.filter(g => g.reason === 'manual_skip' && s.attempts?.runs?.some(r => (exercise === 'all' || r.exerciseId === exercise) && r.goalIds.includes(g.goalId))).length : skippedEvents;
   return { known: s.attempts !== null, complete: s.attempts?.historyComplete ?? false,
     evaluated: records.filter(evaluated).length, completed: n('completed'), partial: n('partial'), incomplete: n('incomplete'),
-    unscorable: n('unscorable'), skipped, cancelled: n('cancelled') - skipped };
+    unscorable: n('unscorable'), skipped, cancelled: n('cancelled') - skippedEvents };
 }
 export function attemptText(s: Session, exercise: ExerciseFilter = 'all'): string {
   const c = attemptCounts(s, exercise);
@@ -47,7 +49,7 @@ export function conditionsKey(s: Session, exercise: ExerciseFilter = 'all'): str
   const rules = ids.map(id => [id, [...new Set(selectedAttempts(s, id).map(a => JSON.stringify([
     a.rulesVersion, a.protocolVersion, a.recognizerVersion, a.settings.maxActiveMs, a.settings.partialRatio ?? null, a.settings.target, a.settings.holdTargetMs, a.settings.targetRadiusRatio,
   ])))].sort()]);
-  return JSON.stringify([s.attempts?.runs ? 'goals-v1' : 'legacy-goals-unknown', ids, s.mode, s.hand, s.protocolId, s.recognitionVersion,
+  return JSON.stringify([s.attempts?.flow ? [s.attempts.flow.version, s.attempts.flow.automatic] : null, routeConditions(s), s.attempts?.runs ? 'goals-v1' : 'legacy-goals-unknown', ids, s.mode, s.hand, s.protocolId, s.recognitionVersion,
     s.settings, s.opposition ? [s.opposition.rulesVersion, s.opposition.allowed, s.opposition.sequence] : null,
     s.ring ?? null, s.attempts?.historyComplete ?? null, rules]);
 }

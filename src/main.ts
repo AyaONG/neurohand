@@ -1,13 +1,18 @@
+import { closeGoal } from './flow';
+import { routeSession, nextRouteSession, type Route } from './route';
+import { closeActive } from './attempts';
+import { settleOpposition } from './opposition';
+import { settleRing } from './ring';
 import { currentGoalText } from './goals';
 import { modeEnabled } from './release-flags';
 import { SyncEngine, supabaseTransport } from './sync';
 import { exportAggregates, importAggregates, MAX_TRANSFER_BYTES } from './transfer';
 import { cloudConfig, AuthController } from './cloud';
 import { Profiles, userOwner } from './profiles';
-import { createRingSession } from './session';
+
 import { RING_NAMES, RING_TIPS, screenPoint, type RingTip } from './ring';
 import { finishRingAttempt } from './ring-program';
-import { createOppositionSession } from './session';
+
 import { currentPair, FINGER_TIPS, ALL_PAIR_KEYS, pairOf, pairLabel, pairCounts, pairTask } from './opposition';
 import { finishOppositionAttempt, skipOppositionPair } from './opposition-program';
 // Точка входа NeuroHand: связывает модули, цикл кадров и интерфейс.
@@ -70,10 +75,14 @@ for (const [mode, card, option] of [
 }
 function chooseTraining(): void {
   if (!modeEnabled(trainingChoice.value)) trainingChoice.value = 'guided';
-  ringOptions.hidden = trainingChoice.value !== 'ring';
-  pairOptions.hidden = trainingChoice.value !== 'opposition';
+  ringOptions.hidden = trainingChoice.value !== 'ring' && !document.querySelector<HTMLInputElement>('#route-ring')?.checked;
+  pairOptions.hidden = trainingChoice.value !== 'opposition' && !document.querySelector<HTMLInputElement>('#route-opposition')?.checked;
 }
 trainingChoice.addEventListener('change', chooseTraining);
+for (const name of ['guided','opposition','ring']) {
+ const input = document.querySelector<HTMLInputElement>(`#route-${name}`);
+ if (input) { input.disabled = !modeEnabled(name); input.addEventListener('change', chooseTraining); }
+}
 document.querySelector<HTMLButtonElement>('#btn-choose-pairs')!.addEventListener('click', () => {
   trainingChoice.value = 'opposition'; chooseTraining(); trainingChoice.focus();
 });
@@ -126,10 +135,11 @@ function updateScore(): void {
   const pairs = mode === 'opposition';
   if (pairs) pairGuide.removeAttribute('hidden'); else pairGuide.setAttribute('hidden', '');
   taskDescription.style.display = pairs || mode === 'ring' ? 'block' : '';
-  finishAttemptButton.hidden = skipPairButton.hidden = !pairs || !sessionStarted;
+  finishAttemptButton.hidden = skipPairButton.hidden = (!pairs && !program.session.attempts?.flow) || !sessionStarted;
   finishAttemptButton.hidden = !sessionStarted || (!pairs && mode !== 'ring');
   finishAttemptButton.disabled = !program.session.attempts?.active || program.session.status !== 'in_progress';
-  skipPairButton.disabled = !!program.session.attempts?.active || !!program.session.opposition?.awaitingRelease || program.session.status !== 'in_progress';
+  skipPairButton.textContent = program.session.attempts?.flow ? 'Пропустить цель' : 'Пропустить пару';
+  skipPairButton.disabled = program.phase === 'transition' || (!program.session.attempts?.flow && !!program.session.attempts?.active) || !!program.session.opposition?.awaitingRelease || program.session.status !== 'in_progress';
   if (mode === 'ring') {
     const active = program.session.attempts?.active;
     const metrics = active?.metrics;
@@ -254,6 +264,13 @@ function showResults(): void {
   resultsButton.textContent = program.session.status === "in_progress" ? "К упражнениям" : "Итоги";
   persist(performance.now(), true);
   renderResults(results, program.session, resumeExercise, finishTraining, newTraining, store.storageLabel(program.session.id));
+  const route = program.session.attempts?.route;
+  if (route) {
+    const linked = store.data.history.filter(s => s.attempts?.route?.trainingRunId === route.trainingRunId);
+    const summary = document.createElement('p');
+    summary.textContent = `Маршрут: ${linked.length} из ${route.blocks.length} блоков завершено. Выполнено целей: ${linked.reduce((n,s) => n + (s.attempts?.records.filter(a => a.outcome === 'completed').length ?? 0), 0)}.`;
+    results.append(summary);
+  }
   if (program.session.status === 'in_progress' && !modeEnabled(program.session.mode)) {
     const resume = results.querySelector<HTMLButtonElement>('#btn-resume');
     if (resume) resume.disabled = true;
@@ -339,9 +356,12 @@ function processFrame(timestampMs: number): void {
   mode = program.session.currentExercise;
   if (program.phase === "summary") {
     rememberFinal();
-    stopCamera();
-    showResults();
-    return;
+    const next = nextRouteSession(program.session, store.data.history);
+    if (next && modeEnabled(next.mode)) {
+      program = beginProgram(createProgram(next)); mode = program.session.currentExercise;
+      resetFrameClock(); persist(timestampMs, true); showExercise(); updateScore(); return;
+    }
+    stopCamera(); showResults(); return;
   }
   const reading = program.reading;
   if (!g || reading?.error) sparkFlight = null;
@@ -353,7 +373,7 @@ function processFrame(timestampMs: number): void {
   });
   if (program.phase === "paused") setHint(instruction);
   else if (mode === 'opposition' || mode === 'ring') setHint(feedback.text, feedback.error, feedback.celebrating);
-  else if (g && (program.phase === "preparing" || program.phase === "transition")) setHint(instruction);
+  else if (!feedback.celebrating && g && (program.phase === "preparing" || program.phase === "transition")) setHint(instruction);
   else setHint(feedback.text, feedback.error, feedback.celebrating);
   updateScore();
   pauseButton.disabled = false;
@@ -406,14 +426,15 @@ start.addEventListener("click", async () => {
   if (!modeEnabled(sessionStarted ? program.session.mode : trainingChoice.value)) {
     setHint('Этот режим временно отключён. Сохрани текущие итоги и выбери базовую программу.', true); return;
   }
-  if (!sessionStarted && trainingChoice.value === 'opposition') {
+  if (!sessionStarted) {
+    const modes = [trainingChoice.value, ...['guided','opposition','ring'].filter(m => document.querySelector<HTMLInputElement>(`#route-${m}`)?.checked)]
+      .filter((m,i,a) => a.indexOf(m) === i && modeEnabled(m)) as Route['blocks'][number]['mode'][];
     const allowed = pairChoices.filter(choice => choice.input.checked).map(choice => choice.tip);
-    if (!allowed.length) { setHint('Выбери хотя бы одну пару пальцев', true); return; }
-    program = createProgram(createOppositionSession(allowed));
-  }
-  if (!sessionStarted && trainingChoice.value === 'ring') {
+    if (modes.includes('opposition') && !allowed.length) { setHint('Выбери хотя бы одну пару пальцев', true); return; }
     const tip = Number(ringTipChoice.value) as RingTip;
-    program = createProgram(createRingSession(RING_TIPS.includes(tip) ? tip : 8));
+    const route: Route = { trainingRunId: crypto.randomUUID(), index: 0, blocks: modes.map(mode => ({ mode, id: crypto.randomUUID() })), pairs: allowed.length ? allowed : [8], ringTip: RING_TIPS.includes(tip) ? tip : 8 };
+    program = createProgram(routeSession(route, document.querySelector<HTMLInputElement>('#automatic-flow')?.checked ?? false,
+      handChoice.value === 'left' || handChoice.value === 'right' ? handChoice.value : 'unspecified'));
   }
   program = beginProgram(program);
   mode = program.session.currentExercise;
@@ -533,6 +554,11 @@ historyButton.addEventListener("click", () => {
   renderHistory(historyPanel, store, () => sessionStarted ? showResults() : showExercise());
 });
 storageNotice.textContent = store.notice;
+if (!store.data.current) {
+  const last = [...store.data.history].sort((a,b) => Date.parse(b.endedAt!) - Date.parse(a.endedAt!))[0];
+  const next = last && nextRouteSession(last, store.data.history);
+  if (next) { program = createProgram({ ...next, paused: true }); sessionStarted = true; mode = next.currentExercise; persist(performance.now(), true); }
+}
 showExercise();
 if (store.data.current) {
   handChoice.value = program.session.hand;
@@ -553,7 +579,12 @@ finishAttemptButton.addEventListener('click', () => {
   program = (mode === 'ring' ? finishRingAttempt : finishOppositionAttempt)(program, new Date().toISOString()); afterPairAction();
 });
 skipPairButton.addEventListener('click', () => {
-  program = skipOppositionPair(program, new Date().toISOString()); afterPairAction();
+  const wall = new Date().toISOString();
+  if (program.session.attempts?.flow) {
+    const session = settleRing(settleOpposition({ ...program.session, attempts: closeActive(program.session.attempts, 'manual', wall) }));
+    program = { ...program, session: closeGoal(session, 'manual_skip', wall), phase: 'transition' };
+  } else program = skipOppositionPair(program, wall);
+  afterPairAction();
 });
 
 window.addEventListener('resize', () => {

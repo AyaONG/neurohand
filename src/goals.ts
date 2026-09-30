@@ -10,7 +10,8 @@ export function createRuns(targets: [ExerciseId, number][]): ExerciseRun[] {
 /** Absent runs means legacy unknown associations, never reconstructed from success counters. */
 export function goalLink(s: Session, index?: number) {
   const run = s.attempts?.runs?.find(r => r.exerciseId === s.currentExercise);
-  const i = index ?? (s.mode === 'opposition' ? s.opposition!.cursor : s.mode === 'ring' ? 0 : s.exercises[s.currentExercise]!.reps);
+  const flowGoal = s.attempts?.flow?.goals[s.attempts.flow.cursor].goalId;
+  const i = flowGoal && run ? run.goalIds.indexOf(flowGoal) : index ?? (s.mode === 'opposition' ? s.opposition!.cursor : s.mode === 'ring' ? 0 : s.exercises[s.currentExercise]!.reps);
   if (!run || !run.goalIds[i]) return {};
   const goalId = run.goalIds[i];
   return { exerciseRunId: run.exerciseRunId, goalId,
@@ -21,7 +22,7 @@ export function goalRows(log: AttemptLog | null) {
   return log?.runs?.flatMap(run => run.goalIds.map((goalId, index) => {
     const attempts = log.records.filter(a => a.goalId === goalId);
     const success = attempts.findIndex(a => a.outcome === 'completed');
-    return { exerciseId: run.exerciseId, goalId, index, attempts, completed: success >= 0,
+    return { closure: log.flow?.goals.find(g => g.goalId === goalId)?.reason ?? null, exerciseId: run.exerciseId, goalId, index, attempts, completed: success >= 0,
       toSuccess: success < 0 ? null : attempts.slice(0, success + 1).filter(evaluatedAttempt).length };
   })) ?? null;
 }

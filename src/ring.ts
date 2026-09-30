@@ -34,7 +34,7 @@ export function settleRing(s: Session): Session {
   if (s.mode !== 'ring') return s;
   const records = s.attempts!.records, all = [...records, ...(s.attempts!.active ? [s.attempts!.active] : [])];
   const terminal = records.find(finishesRing);
-  return { ...s, ...(terminal ? { status: 'completed' as const, endedAt: terminal.endedAt, paused: true } : {}),
+  return { ...s, ...(terminal && !s.attempts?.flow ? { status: 'completed' as const, endedAt: terminal.endedAt, paused: true } : {}),
     exercises: { ...s.exercises, ring: { reps: records.filter(a => a.outcome === 'completed').length, target: 1,
       started: all.length > 0, activeMs: all.reduce((n, a) => n + a.activeMs, 0), promptEpisodes: {}, bestHoldMs: null } } };
 }

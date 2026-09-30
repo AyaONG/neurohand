@@ -41,6 +41,9 @@
       <article id="card-ring"><svg viewBox="0 0 180 90" aria-hidden="true"><circle cx="90" cy="45" r="30"/><path d="M90 15h16l-6-6m6 6-6 6"/><circle cx="90" cy="15" r="5" fill="#fcd34d"/></svg><h3>Обведи кольцо</h3><p>Проведи кончиком пальца по 12 отметкам и вернись на старт. Измеряется экранный путь; можно двигать всей кистью.</p><button id="btn-choose-ring">Выбрать кольцо</button></article>
       </div>
       <label class="training-choice">Выбрать занятие <select id="training-choice"><option value="guided">Базовая программа: 5 / 5 / 3</option><option id="option-pairs" value="opposition">Найди пару</option><option id="option-ring" value="ring">Обведи кольцо</option></select></label>
+      <label><input id="automatic-flow" type="checkbox" checked> Автоматические переходы</label>
+      <fieldset><legend>Добавить к выбранному занятию</legend><label><input id="route-guided" type="checkbox"> Базовая программа</label><label><input id="route-opposition" type="checkbox"> Выбранные пары</label><label><input id="route-ring" type="checkbox"> Кольцо</label></fieldset>
+      <p>Автоматически: до двух оценённых попыток и 20 секунд пригодного времени на цель. Между целями — 3 секунды. Сбои отслеживания не считаются неудачами.</p>
       <fieldset id="ring-options" hidden><legend>Кончик для кольца · одна попытка до 15 секунд</legend><label>Палец <select id="ring-tip"><option value="8">Указательный</option><option value="12">Средний</option><option value="16">Безымянный</option><option value="20">Мизинец</option><option value="4">Большой</option></select></label></fieldset>
       <fieldset id="pair-options" hidden>
         <legend>Выбери удобные пары пальцев</legend>

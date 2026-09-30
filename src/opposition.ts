@@ -110,7 +110,7 @@ export function pairCounts(s: Session) {
     partial: records.filter(a => a.outcome === 'partial').length,
     incomplete: records.filter(a => a.outcome === 'incomplete').length,
     unscorable: records.filter(a => a.outcome === 'unscorable').length,
-    skipped: records.filter(a => a.endReason === 'skip').length,
+    skipped: s.attempts?.flow ? s.attempts.flow.goals.filter(g => g.reason === 'manual_skip').length : records.filter(a => a.endReason === 'skip').length,
     consumed: records.filter(consumesPair).length };
 }
 
@@ -119,7 +119,7 @@ export function settleOpposition(s: Session): Session {
   if (s.mode !== 'opposition') return s;
   const plan = s.opposition!, log = s.attempts!;
   const terminal = log.records.find(a => a.settings.sequenceIndex === plan.cursor && consumesPair(a));
-  const awaitingRelease = plan.awaitingRelease || !!terminal;
+  const awaitingRelease = !log.flow && (plan.awaitingRelease || !!terminal);
   const done = awaitingRelease && plan.cursor === plan.sequence.length - 1;
   const records = [...log.records, ...(log.active ? [log.active] : [])];
   return { ...s, opposition: { ...plan, awaitingRelease },

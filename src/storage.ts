@@ -44,7 +44,7 @@ export function parseSession(v: unknown): Session | null {
         r.reps > r.target || typeof r.started !== 'boolean' || !number(r.activeMs) || !object(r.promptEpisodes) ||
         !Object.values(r.promptEpisodes).every(count) || (r.bestHoldMs !== null && (!number(r.bestHoldMs) || r.bestHoldMs > s.holdTargetMs)) ||
         (!r.started && (r.reps > 0 || r.activeMs > 0 || Object.values(r.promptEpisodes).some(n => n > 0))) ||
-        (v.mode === 'guided' && v.status === 'completed' && r.reps !== r.target)) return null;
+        (!attempts?.flow && v.mode === 'guided' && v.status === 'completed' && r.reps !== r.target)) return null;
     exercises[id] = { reps: r.reps, target: r.target, started: r.started, activeMs: r.activeMs,
       promptEpisodes: Object.fromEntries(Object.entries(r.promptEpisodes)), bestHoldMs: r.bestHoldMs };
   }
@@ -55,8 +55,8 @@ export function parseSession(v: unknown): Session | null {
     const records = [...attempts.records, ...(attempts.active ? [attempts.active] : [])];
     if (records.some(a => a.exerciseId !== 'ring' || JSON.stringify(a.settings.ring) !== JSON.stringify(ring) || a.hand !== v.hand || a.protocolVersion !== v.protocolId || a.recognizerVersion !== v.recognitionVersion)) return null;
     const terminals = attempts.records.filter(finishesRing);
-    if (terminals.length > 1 || (v.status === 'completed') !== (terminals.length === 1) ||
-        (terminals.length && (attempts.records.at(-1) !== terminals[0] || v.endedAt !== terminals[0].endedAt))) return null;
+    if (terminals.length > 1 || (!attempts.flow && (v.status === 'completed') !== (terminals.length === 1)) ||
+        (!attempts.flow && terminals.length && (attempts.records.at(-1) !== terminals[0] || v.endedAt !== terminals[0].endedAt))) return null;
     const projected = settleRing({ ...v, ring, attempts } as Session);
     if (projected.status !== v.status || JSON.stringify(projected.exercises.ring) !== JSON.stringify(v.exercises.ring) || records.filter(a => a.outcome === 'completed').length > 1) return null;
     exercises.ring = projected.exercises.ring!;
@@ -73,11 +73,11 @@ export function parseSession(v: unknown): Session | null {
           a.hand !== v.hand || a.protocolVersion !== v.protocolId || a.recognizerVersion !== v.recognitionVersion) return null;
       if (consumesPair(a)) { if (used.has(i)) return null; used.add(i); }
     }
-    if (Array.from({ length: opposition.cursor }, (_, i) => i).some(i => !used.has(i)) ||
+    if (!attempts.flow && (Array.from({ length: opposition.cursor }, (_, i) => i).some(i => !used.has(i)) ||
         used.has(opposition.cursor) !== opposition.awaitingRelease ||
-        (attempts.active && (opposition.awaitingRelease || attempts.active.settings.sequenceIndex !== opposition.cursor))) return null;
+        (attempts.active && (opposition.awaitingRelease || attempts.active.settings.sequenceIndex !== opposition.cursor)))) return null;
     const done = opposition.awaitingRelease && opposition.cursor === opposition.sequence.length - 1;
-    if ((v.status === 'completed') !== done) return null;
+    if (!attempts.flow && (v.status === 'completed') !== done) return null;
     const r = v.exercises.opposition;
     if (!object(r) || r.target !== opposition.sequence.length || !count(r.reps) ||
         r.reps !== attempts.records.filter(a => a.outcome === 'completed').length ||
@@ -86,6 +86,14 @@ export function parseSession(v: unknown): Session | null {
     exercises.opposition = { reps: r.reps, target: r.target, started: r.started, activeMs: r.activeMs,
       promptEpisodes: { ...r.promptEpisodes }, bestHoldMs: null };
   } else if (attempts && [...attempts.records, ...(attempts.active ? [attempts.active] : [])].some(a => a.exerciseId === 'opposition' || a.exerciseId === 'ring')) return null;
+  if (attempts?.flow) {
+    const f = attempts.flow, goal = f.goals[f.cursor];
+    const run = attempts.runs!.find(r => r.goalIds.includes(goal.goalId))!;
+    if (run.exerciseId !== v.currentExercise || (opposition && (opposition.cursor !== run.goalIds.indexOf(goal.goalId) || opposition.awaitingRelease))) return null;
+    if (v.status === 'completed' && (!f.goals.every(g => g.reason) || f.transitionMs !== 3000 || attempts.active)) return null;
+    const route = attempts.route;
+    if (route && (route.blocks[route.index].id !== v.id || route.blocks[route.index].mode !== v.mode)) return null;
+  }
   return { schemaVersion: 3, attempts, ...(ring ? { ring } : {}), ...(opposition ? { opposition } : {}), id: v.id, startedAt: v.startedAt, endedAt: v.endedAt, status: v.status,
     mode: v.mode, protocolId: v.protocolId, recognitionVersion: v.recognitionVersion, hand: v.hand,
     settings: { pinchTarget: s.pinchTarget, gripTarget: s.gripTarget, holdTargetCount: s.holdTargetCount,
@@ -184,7 +192,7 @@ export class ProgressStore {
     if (!clean) return;
     const event = JSON.stringify([clean.id, clean.status, clean.paused, clean.currentExercise, clean.hand, clean.opposition?.cursor, clean.opposition?.awaitingRelease,
       clean.attempts?.active?.metrics.kind === 'ring' ? clean.attempts.active.metrics.marks : null,
-      clean.attempts?.active?.attemptId, clean.attempts?.records.length, clean.attempts?.active?.interruptions.count,
+      clean.attempts?.flow?.cursor, clean.attempts?.flow?.goals.map(g => g.reason), clean.attempts?.active?.attemptId, clean.attempts?.records.length, clean.attempts?.active?.interruptions.count,
       ids.map(id => [clean.exercises[id].reps, clean.exercises[id].started, clean.exercises[id].promptEpisodes])]);
     if (!force && event === this.lastEvent && timestampMs - this.lastSaveMs < 2000) return;
     if (this.data.history.some(s => s.id === clean.id)) return; // finalized snapshots are immutable

@@ -1,3 +1,5 @@
+import { parseFlow } from './flow';
+import { parseRoute } from './route';
 import { parseRingSettings } from './ring';
 import { isPairKey, pairOf, pairRules, PAIR_RULES, type FingerPair } from './opposition';
 import type { Attempt, AttemptLog, AttemptMetrics } from './attempts';
@@ -102,5 +104,22 @@ export function parseAttemptLog(v: unknown): AttemptLog | null | undefined {
       if (a.outcome === 'completed' || a.endReason === 'skip') closed.add(a.goalId);
     }
   } else if ([...records, ...(active ? [active] : [])].some(a => a.goalId)) return undefined;
-  return { ...(runs ? { runs } : {}), historyComplete: v.historyComplete, records, active };
+  const flow = v.flow === undefined ? undefined : parseFlow(v.flow, runs?.flatMap(r => r.goalIds) ?? []);
+  const route = v.route === undefined ? undefined : parseRoute(v.route);
+  if ((v.flow !== undefined && (!flow || !runs)) || (v.route !== undefined && (!route || !flow))) return undefined;
+  if (flow) {
+    const currentId = flow.goals[flow.cursor].goalId;
+    if (active && (active.goalId !== currentId || flow.goals[flow.cursor].reason)) return undefined;
+    for (const [i,g] of flow.goals.entries()) {
+      const entries = records.filter(a => a.goalId === g.goalId);
+      if (i > flow.cursor && entries.length) return undefined;
+      if (g.reason === 'success' && !entries.some(a => a.outcome === 'completed')) return undefined;
+      if (g.reason && g.reason !== 'success' && entries.some(a => a.outcome === 'completed')) return undefined;
+      if (g.reason === 'attempt_limit' && entries.filter(a => a.outcome === 'partial' || a.outcome === 'incomplete').length < 2) return undefined;
+      if (g.reason === 'unscorable_limit' && entries.filter(a => a.outcome === 'unscorable').length < 2) return undefined;
+      if (g.reason === 'time_limit' && g.usableMs !== 20000) return undefined;
+      if (g.reason && !['success','manual_skip'].includes(g.reason) && !flow.automatic) return undefined;
+    }
+  }
+  return { ...(flow ? { flow } : {}), ...(route ? { route } : {}), ...(runs ? { runs } : {}), historyComplete: v.historyComplete, records, active };
 }

@@ -26,7 +26,7 @@ export type Attempt = {
   interruptions: { count: number; durationMs: number };
   metrics: AttemptMetrics;
 };
-export type AttemptLog = { runs?: ExerciseRun[]; historyComplete: boolean; records: Attempt[]; active: Attempt | null };
+export type AttemptLog = { flow?: import("./flow").Flow; route?: import("./route").Route; runs?: ExerciseRun[]; historyComplete: boolean; records: Attempt[]; active: Attempt | null };
 export const emptyAttempts = (historyComplete = true): AttemptLog => ({ historyComplete, records: [], active: null });
 
 export function startAttempt(log: AttemptLog, attempt: Attempt): AttemptLog {

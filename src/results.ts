@@ -1,3 +1,4 @@
+import { CLOSURE_LABELS } from './flow';
 import { goalRows, successText } from './goals';
 import { attemptDetail, attemptText, ringMetric } from './progress';
 import { pairCounts } from './opposition';
@@ -32,7 +33,7 @@ export function renderResults(container: HTMLElement, session: Session, onResume
   heading.textContent = session.status === "completed" ? "Тренировка завершена" : session.status === "stopped" ? "Тренировка остановлена" : "Текущие итоги";
   heading.tabIndex = -1;
   const description = document.createElement("p");
-  description.textContent = session.status === "completed" ? (session.mode !== 'guided' ? 'Маршрут занятия завершён. Ниже — фактически выполненные и частичные результаты.' : "Выполнено 3 из 3 заданий.") : session.status === "stopped" ? "Тренировка остановлена. Сохранён выполненный объём." : model.empty
+  description.textContent = session.status === "completed" ? (session.attempts?.flow || session.mode !== 'guided' ? 'Маршрут занятия завершён. Ниже — фактически выполненные и частичные результаты.' : "Выполнено 3 из 3 заданий.") : session.status === "stopped" ? "Тренировка остановлена. Сохранён выполненный объём." : model.empty
     ? (session.mode === 'ring' ? 'Удержи кончик на старте кольца и начни движение по часовой стрелке.' : session.mode === 'opposition' ? 'Движений пока нет. Разведи пальцы, затем соедини указанную пару.' : "Движений пока нет. Начни с пинцета: раскрой ладонь, затем соедини большой и указательный пальцы.")
     : "Тренировка на паузе. Результаты сохранятся при продолжении.";
   const list = document.createElement("ul");
@@ -85,7 +86,7 @@ export function renderResults(container: HTMLElement, session: Session, onResume
   const goals = goalRows(session.attempts);
   if (goals) for (const goal of goals) {
     const item = document.createElement('li');
-    item.textContent = `${labels[goal.exerciseId]} · Цель ${goal.index + 1}: ${successText(goal.toSuccess)}`;
+    item.textContent = `${labels[goal.exerciseId]} · Цель ${goal.index + 1}: ${successText(goal.toSuccess)}${goal.closure ? " · " + CLOSURE_LABELS[goal.closure] : ""}`;
     const children = document.createElement('ul');
     for (const a of goal.attempts) {
       const detail = document.createElement('li');

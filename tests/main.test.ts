@@ -112,6 +112,7 @@ function frame(lm: Landmark[] | null, dt = 33) {
 function prepare() { for (let i = 0; i < 100; i++) frame(fixture("grip_open")); }
 
 function pinch() {
+  if (elements.hint.textContent.includes("Далее") || elements.hint.textContent.includes("засчитан")) for (let i=0; i<135; i++) frame(fixture("grip_open"));
   for (let i = 0; i < 6; i++) frame(fixture("pinch_open"));
   for (let i = 0; i < 6; i++) frame(fixture("pinch_closed"));
 }
@@ -154,7 +155,7 @@ describe("app wiring with simulated camera frames", () => {
     }
     for (let i = 0; i < 160; i++) frame(fixture("pinch_closed"));
     expect(elements.score.textContent).toBe("Пинцет: 3 / 5");
-    expect(elements.hint.textContent).toBe("Разведи пальцы для следующего захвата");
+    expect(elements.hint.textContent).toContain("Раскрой ладонь");
     expect(mocks.draw.mock.lastCall?.[3].success).toBe(false);
     await elements["btn-results"].fire("click");
     const snapshot = elements.results.children[2].children.map(row => row.textContent);
@@ -207,13 +208,14 @@ describe("app wiring with simulated camera frames", () => {
     prepare();
     for (let rep = 0; rep < 5; rep++) pinch();
     expect(elements.score.textContent).toBe("Пинцет: 5 / 5");
-    for (let i = 0; i < 110; i++) frame(fixture("grip_open"));
+    for (let i = 0; i < 135; i++) frame(fixture("grip_open"));
     expect(elements.score.textContent).toBe("Эспандер: 0 / 5");
     for (let rep = 0; rep < 5; rep++) {
+      if (rep) for (let i=0; i<135; i++) frame(fixture("grip_open"));
       for (let i = 0; i < 6; i++) frame(fixture("grip_open"));
       for (let i = 0; i < 6; i++) frame(fixture("grip_closed"));
     }
-    for (let i = 0; i < 110; i++) frame(fixture("grip_open"));
+    for (let i = 0; i < 135; i++) frame(fixture("grip_open"));
     expect(elements.score.textContent).toBe("Перенос: 0 / 3");
     for (let goal = 0; goal < 3; goal++) {
       const target = mocks.draw.mock.lastCall![3].target;
@@ -229,6 +231,7 @@ describe("app wiring with simulated camera frames", () => {
         expect(mocks.draw.mock.lastCall![3].target.x).not.toBe(target.x);
       }
     }
+    for (let i=0; i<100; i++) frame(fixture("grip_open"));
     expect(elements.results.hidden).toBe(false);
     expect(elements.results.children[0].textContent).toBe("Тренировка завершена");
     const snapshot = elements.results.children[2].children.map(row => row.textContent);
@@ -462,8 +465,9 @@ it('requires at least one pair before opening the camera and allows explicit ski
   expect(elements.score.textContent).toContain('Выполнено: 0 / 2 · Пропущено: 1 · Попытки: 0 оценённых');
   await elements['btn-skip-pair'].fire('click');
   expect(elements.score.textContent).toContain('Выполнено: 0 / 2 · Пропущено: 1');
-  for (let i = 0; i < 30; i++) frame(fixture('grip_open'));
+  for (let i = 0; i < 120; i++) frame(fixture('grip_open'));
   await elements['btn-skip-pair'].fire('click');
+  for (let i=0; i<100; i++) frame(fixture('grip_open'));
   expect(elements.results.children[2].children[0].textContent).toContain('0 / 2');
   expect(JSON.parse(memory.getItem('neurohand:progress:v3')!).history[0].attempts.records.every((a: { outcome: string }) => a.outcome === 'cancelled')).toBe(true);
 });
@@ -484,7 +488,7 @@ it.each([8, 20])('wires selected ring tip %i, partial completion and history thr
   for (let x = 0.025; x <= 4.05; x += 0.025) frame(ringPose(x, tip));
   expect(mocks.draw.mock.lastCall![3].ring).toEqual({ tip, marks: 8 });
   expect(elements.score.textContent).toContain('8 / 12');
-  expect(elements['btn-skip-pair'].hidden).toBe(true);
+  expect(elements['btn-skip-pair'].hidden).toBe(false);
   await elements['btn-finish-attempt'].fire('click');
   await elements['btn-results'].fire('click');
   await elements.results.querySelector('#btn-finish')!.fire('click');

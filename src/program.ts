@@ -1,3 +1,4 @@
+import { afterFlow, settleFlow, usableFrame, CLOSURE_LABELS, FLOW_RULES } from './flow';
 import { settleRing } from './ring';
 import { emptyRingState, restartRing, stepRingProgram, ringInstruction, type RingState } from './ring-program';
 import { emptyOppositionState, restartOpposition, stepOppositionProgram, oppositionInstruction, type OppositionState } from './opposition-program';
@@ -54,7 +55,7 @@ export function beginProgram(p: Program, reason: "resize" | "pause" = "pause"): 
   if (p.session.status !== "in_progress") return p;
   if (p.session.mode === "ring") return restartRing(p, reason);
   if (p.session.mode === "opposition") return restartOpposition(p, reason);
-  const currentExercise = EXERCISES.find(id => p.session.exercises[id]!.reps < p.session.exercises[id]!.target) ?? "hold";
+  const currentExercise = p.session.attempts?.flow ? p.session.currentExercise as BasicExerciseId : EXERCISES.find(id => p.session.exercises[id]!.reps < p.session.exercises[id]!.target) ?? "hold";
   return clearTransient({ ...p, phase: "preparing", pauseReason: null,
     session: { ...resumeSession(p.session), attempts: closeActive(p.session.attempts, reason), currentExercise } });
 }
@@ -87,7 +88,7 @@ function updatePrompt(state: PromptState, code: string | null, now: number): { s
   return { state: now - clearSince >= 300 ? emptyPrompt() : { ...state, candidate: null, since: null, clearSince } };
 }
 
-export function stepProgram(previous: Program, frame: ProgramFrame): Program {
+function stepExercise(previous: Program, frame: ProgramFrame): Program {
   if (previous.session.mode === "ring") return stepRingProgram(previous, frame);
   if (previous.session.mode === "opposition") return stepOppositionProgram(previous, frame);
   const now = frame.timestampMs;
@@ -183,7 +184,7 @@ export function stepProgram(previous: Program, frame: ProgramFrame): Program {
     success: p.reading?.error ? null : p.success };
   if (confirmed) {
     p.success = { exercise: mode, reps: action, at: now };
-    if (action === session.exercises[mode]!.target) {
+    if (!session.attempts?.flow && action === session.exercises[mode]!.target) {
       if (mode === "hold") return { ...p, phase: "summary", wasActive: false,
         session: finishSession(recorded, "completed", frame.wallTime) };
       return { ...p, phase: "transition", transitionSince: now, wasActive: false, prompt: emptyPrompt() };
@@ -193,6 +194,9 @@ export function stepProgram(previous: Program, frame: ProgramFrame): Program {
 }
 
 export function programInstruction(p: Program, now: number): string {
+  const f = p.session.attempts?.flow;
+  if (f && p.phase === 'transition') return `${f.visibilityHelp ? 'Не удаётся увидеть движение. Покажи кисть целиком, раздели кончики и улучши освещение. Продолжение после устойчивого изображения' : CLOSURE_LABELS[f.goals[f.cursor].reason!] + '. Далее'} · ${Math.max(1, Math.ceil((FLOW_RULES.transitionMs - f.transitionMs) / 1000))}`;
+
   if (p.session.mode === "ring") return ringInstruction(p);
   if (p.session.mode === "opposition") return oppositionInstruction(p);
   if (p.phase === "paused") return p.pauseReason === "tracking"
@@ -207,4 +211,32 @@ export function programInstruction(p: Program, now: number): string {
   if (p.reading && !p.reading.open) return "Раскрой ладонь, чтобы удерживать цель";
   return p.hold.holdMs > 0 ? `Удерживай · ${(p.hold.holdMs / 1000).toFixed(1)} / 2,0 с`
     : p.holdInterrupted ? "Верни ладонь в круг и начни удержание заново" : "Перемести открытую ладонь в круг";
+}
+
+export function stepProgram(previous: Program, frame: ProgramFrame): Program {
+  const flow = previous.session.attempts?.flow;
+  if (!flow) return stepExercise(previous, frame);
+  if (previous.session.status !== 'in_progress' || previous.phase === 'intro' || (previous.phase === 'paused' && previous.pauseReason !== 'tracking') ||
+      !Number.isFinite(frame.timestampMs) || (previous.lastTimestamp !== null && frame.timestampMs <= previous.lastTimestamp)) return previous;
+  const session = settleFlow(previous.session, frame.wallTime);
+  const f = session.attempts!.flow!;
+  if (f.goals[f.cursor].reason) {
+    const valid = usableFrame(previous, frame);
+    const gap = previous.lastTimestamp === null ? 0 : frame.timestampMs - previous.lastTimestamp;
+    const dt = valid && previous.lastValidTimestamp === previous.lastTimestamp && gap <= 250 ? gap : 0;
+    const elapsed = Math.min(FLOW_RULES.transitionMs, f.transitionMs + dt);
+    // Visibility help requires an uninterrupted recovery countdown. Ordinary transitions freeze on loss.
+    const nextFlow = { ...f, transitionMs: f.visibilityHelp && !valid ? 0 : elapsed };
+    let p: Program = { ...previous, session: { ...session, paused: false, attempts: { ...session.attempts!, flow: nextFlow } },
+      phase: 'transition', lastTimestamp: frame.timestampMs, lastValidTimestamp: valid ? frame.timestampMs : null, missingSince: valid ? null : previous.missingSince ?? frame.timestampMs };
+    if (nextFlow.transitionMs < FLOW_RULES.transitionMs) return p;
+    if (f.cursor === f.goals.length - 1) return { ...p, phase: 'summary', session: { ...p.session, status: 'completed', endedAt: frame.wallTime, paused: true } };
+    const cursor = f.cursor + 1, goalId = f.goals[cursor].goalId;
+    const run = session.attempts!.runs!.find(r => r.goalIds.includes(goalId))!;
+    p.session = { ...p.session, currentExercise: run.exerciseId,
+      ...(session.opposition ? { opposition: { ...session.opposition, cursor: run.goalIds.indexOf(goalId), awaitingRelease: false } } : {}),
+      attempts: { ...p.session.attempts!, flow: { ...nextFlow, cursor, transitionMs: 0, visibilityHelp: false } } };
+    return beginProgram(p);
+  }
+  return afterFlow(previous, stepExercise(previous, frame), frame);
 }
