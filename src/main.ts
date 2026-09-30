@@ -2,7 +2,7 @@ import { configureReportOwner, pdfButton } from './report-actions';
 import { MovementEvents } from './movement-feedback';
 import { closeGoal } from './flow';
 import { routeSession, nextRouteSession, type Route } from './route';
-import { closeActive } from './attempts';
+import { finishAttempt } from './attempts';
 import { settleOpposition } from './opposition';
 import { settleRing } from './ring';
 import { currentGoalText } from './goals';
@@ -146,7 +146,7 @@ function updateScore(): void {
   skipPairButton.textContent = program.session.attempts?.flow ? 'Пропустить цель' : 'Пропустить пару';
   skipPairButton.disabled = program.phase === 'transition' || (!program.session.attempts?.flow && !!program.session.attempts?.active) || !!program.session.opposition?.awaitingRelease || program.session.status !== 'in_progress';
   if (mode === 'ring') {
-    const active = program.session.attempts?.active;
+    const active = program.session.attempts?.active ?? program.session.attempts?.records.at(-1);
     const metrics = active?.metrics;
     taskTitle.textContent = `Обведи кольцо · ${RING_NAMES[program.session.ring!.tip]}`;
     taskDescription.textContent = 'Экранный путь кончика. Можно двигать всей кистью. По часовой стрелке, до 15 с на попытку.';
@@ -172,7 +172,8 @@ function updateScore(): void {
   tabs.querySelectorAll<HTMLElement>("[data-mode]").forEach(tab => {
     const id = tab.dataset.mode as ExerciseId;
     const result = program.session.exercises[id]!;
-    const state = result.reps === result.target ? "Готово" : id === mode ? "Сейчас" : "Далее";
+    const closed = program.session.attempts?.runs?.find(r => r.exerciseId === id)?.goalIds.every(goalId => program.session.attempts?.flow?.goals.some(g => g.goalId === goalId && g.reason));
+    const state = result.reps === result.target ? "Готово" : closed ? "Пройдено" : id === mode ? "Сейчас" : "Далее";
     const text = `${EXERCISES.indexOf(id as BasicExerciseId) + 1}. ${{ pinch: "Огоньки", grip: "Мяч", hold: "Цели", opposition: "Пары", ring: "Кольцо" }[id]} · ${state}`;
     if (tab.textContent !== text) tab.textContent = text;
     tab.classList.toggle("active", id === mode);
@@ -591,8 +592,10 @@ finishAttemptButton.addEventListener('click', () => {
 skipPairButton.addEventListener('click', () => {
   const wall = new Date().toISOString();
   if (program.session.attempts?.flow) {
-    const session = settleRing(settleOpposition({ ...program.session, attempts: closeActive(program.session.attempts, 'manual', wall) }));
-    program = { ...program, session: closeGoal(session, 'manual_skip', wall), phase: 'transition' };
+    const log = program.session.attempts!;
+    const attempts = log.active ? finishAttempt(log, log.active.attemptId, 'cancelled', 'manual', wall) : log;
+    const session = settleRing(settleOpposition({ ...program.session, attempts }));
+    program = { ...program, session: closeGoal(session, 'manual_skip', wall), phase: session.paused ? 'paused' : 'transition' };
   } else program = skipOppositionPair(program, wall);
   afterPairAction();
 });

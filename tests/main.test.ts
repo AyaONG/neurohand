@@ -80,7 +80,7 @@ function memoryStorage() {
     setItem: vi.fn((key: string, value: string) => { values.set(key, value); }) };
 }
 async function setup(search = "", storage = memoryStorage()) {
-  elements = Object.fromEntries(["success-star", "pair-8-12", "pair-8-16", "pair-8-20", "pair-12-16", "pair-12-20", "pair-16-20", "card-pairs", "card-ring", "option-pairs", "option-ring", "sync-panel", "sync-status", "btn-sync-retry", "btn-cloud-more", "btn-import-guest", "guest-import", "btn-export-json", "import-json", "transfer-status", "auth-status", "btn-sign-in", "btn-sign-out", "video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "ring-options", "ring-tip", "btn-choose-ring", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
+  elements = Object.fromEntries(["automatic-flow", "route-guided", "route-opposition", "route-ring", "success-star", "pair-8-12", "pair-8-16", "pair-8-20", "pair-12-16", "pair-12-20", "pair-16-20", "card-pairs", "card-ring", "option-pairs", "option-ring", "sync-panel", "sync-status", "btn-sync-retry", "btn-cloud-more", "btn-import-guest", "guest-import", "btn-export-json", "import-json", "transfer-status", "auth-status", "btn-sign-in", "btn-sign-out", "video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "ring-options", "ring-tip", "btn-choose-ring", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
     .map(id => [id, Object.assign(new Element(), { id })]));
   elements.results.hidden = true;
   Object.assign(elements['training-choice'], { value: 'guided' });
@@ -695,4 +695,19 @@ it('manually selects a non-thumb pair and highlights exactly its two tips', asyn
   expect(elements['guide-tip-8'].classes.has('selected')).toBe(true);
   expect(elements['guide-tip-16'].classes.has('selected')).toBe(true);
   expect(mocks.draw.mock.lastCall![3].pair).toEqual([8,16]);
+});
+
+it('keeps the camera running across selected basic → pairs → ring blocks and shows final linked results',async()=>{
+ const memory=memoryStorage();await setup('',memory);
+ Object.assign(elements['automatic-flow'],{checked:true});Object.assign(elements['route-opposition'],{checked:true});Object.assign(elements['route-ring'],{checked:true});
+ Object.assign(elements['pair-8'],{checked:true});Object.assign(elements['ring-tip'],{value:'8'});
+ await elements['btn-start'].fire('click');prepare();
+ for(let goal=0;goal<13+2+1;goal++) {
+  await elements['btn-skip-pair'].fire('click');
+  for(let i=0;i<110;i++) frame(fixture('grip_open'));
+ }
+ expect(elements.results.hidden).toBe(false);expect(mocks.camera).toHaveBeenCalledOnce();expect(mocks.stop).toHaveBeenCalledOnce();
+ const finals=JSON.parse(memory.getItem('neurohand:progress:v3')!).history;
+ expect(finals).toHaveLength(3);expect(new Set(finals.map((s:any)=>s.attempts.route.trainingRunId)).size).toBe(1);
+ expect(finals.every((s:any)=>s.status==='completed' && !s.attempts.records.length && s.attempts.flow.goals.every((g:any)=>g.reason==='manual_skip'))).toBe(true);
 });

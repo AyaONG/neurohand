@@ -53,6 +53,9 @@ function clearTransient(p: Program): Program {
 
 export function beginProgram(p: Program, reason: "resize" | "pause" = "pause"): Program {
   if (p.session.status !== "in_progress") return p;
+  const flow = p.session.attempts?.flow;
+  if (flow && !flow.goals[flow.cursor].reason) p = { ...p, session: { ...p.session, attempts: { ...p.session.attempts!,
+    flow: { ...flow, goals: flow.goals.map((g,i) => i === flow.cursor ? { ...g, ready: false } : g) } } } };
   if (p.session.mode === "ring") return restartRing(p, reason);
   if (p.session.mode === "opposition") return restartOpposition(p, reason);
   const currentExercise = p.session.attempts?.flow ? p.session.currentExercise as BasicExerciseId : EXERCISES.find(id => p.session.exercises[id]!.reps < p.session.exercises[id]!.target) ?? "hold";

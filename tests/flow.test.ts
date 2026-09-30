@@ -89,3 +89,13 @@ it('route IDs are durable, next block unique and no legacy links inferred',()=>{
  expect(nextRouteSession(s,[s,{...next,status:'stopped',endedAt:wall(5000)}])).toBeNull();
  expect(nextRouteSession({...createSession(),status:'completed'},[])).toBeNull();
 });
+
+it('time limit with an active partial preserves observed movement; pause requires new readiness without charging preparation',()=>{
+ const h=harness();h.run(400);h.run(400,geometry(.7));
+ expect(h.p.session.attempts!.active).not.toBeNull();h.p.session.attempts!.flow!.goals[0].usableMs=19980;
+ h.run(20,geometry(.7));expect(h.p.session.attempts!.flow!.goals[0].reason).toBe('time_limit');
+ expect(h.p.session.attempts!.records[0]).toMatchObject({outcome:'partial',endReason:'timeout'});
+ const other=harness();other.run(400);other.run(500);const ms=other.p.session.attempts!.flow!.goals[0].usableMs;
+ other.p=beginProgram(pauseProgram(other.p,'visibility',wall(other.time)));other.run(200);
+ expect(other.p.session.attempts!.flow!.goals[0].usableMs).toBe(ms);
+});
