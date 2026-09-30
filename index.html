@@ -9,27 +9,109 @@
 <body>
   <header>
     <h1>NeuroHand</h1>
-    <nav id="tabs">
-      <button data-mode="pinch" class="active">Пинцет</button>
-      <button data-mode="grip">Эспандер</button>
-      <button data-mode="hold">Перенос</button>
-      <button id="btn-results">Итоги</button>
+    <nav aria-label="Разделы">
+      <button id="btn-history" aria-controls="history" aria-expanded="false">Мой прогресс</button>
+      <button id="btn-results" aria-controls="results" aria-expanded="false">Итоги</button>
     </nav>
   </header>
+  <section class="auth-panel" aria-label="Вход"><p id="auth-status" role="status">Прогресс сохраняется в этом браузере</p><p id="account-notice" role="status"></p><button id="btn-sign-in" hidden>Войти</button><button id="btn-sign-out" hidden>Выйти</button></section>
+  <section id="sync-panel" class="sync-panel" aria-label="Сохранение и перенос">
+    <p id="sync-status" role="status">В этом браузере</p>
+    <button id="btn-sync-retry" hidden>Обновить и повторить синхронизацию</button>
+    <details id="settings"><summary>Аккаунт и скачивание</summary>
+      <div id="account-pdf"></div>
+      <p id="sync-details"></p>
+    <button id="btn-cloud-more" hidden>Загрузить ещё из аккаунта</button>
+    <button id="btn-import-guest" hidden>Добавить гостевые занятия</button>
+
+      <details><summary>Резервная копия и перенос</summary>
+      <p>Скачай резервную копию JSON для переноса в другой браузер. Загрузи файл без входа в аккаунт, затем выбери занятия для добавления в аккаунт.</p>
+      <button id="btn-export-json">Скачать резервную копию (.json)</button>
+      <label>Восстановить из резервной копии <input id="import-json" type="file" accept="application/json,.json"></label>
+      <p>PDF предназначен для чтения. Восстановление возможно только из резервной копии JSON.</p></details>
+
+    </details>
+    <p id="transfer-status" role="status"></p><div id="guest-import" hidden></div>
+  </section>
   <main>
-    <section id="stage">
-      <video id="video" playsinline muted></video>
-      <canvas id="canvas"></canvas>
+    <p id="storage-notice" role="status" aria-live="polite"></p>
+    <section id="home" aria-labelledby="home-title">
+      <p class="eyebrow">Движение · внимание · прогресс</p>
+      <h2 id="home-title">Движения кисти.<br>В своём темпе.</h2>
+      <p class="lead">Управляй светом и мячом движениями руки перед камерой. Выполни задания и посмотри свой результат.</p>
+      <div class="exercise-previews">
+        <article><svg viewBox="0 0 180 90" aria-hidden="true"><path d="M35 72V42a10 10 0 0 1 20 0v15M125 72V42a10 10 0 0 1 20 0v15"/><circle class="pinch-demo" cx="65" cy="35" r="10"/><circle cx="110" cy="35" r="10"/><path class="spark-demo" d="m88 18 4 9 9 4-9 4-4 9-4-9-9-4 9-4Z"/></svg><p class="eyebrow">01 · 5 захватов</p><h3>Собери огоньки</h3><p>Соедини большой и указательный пальцы, затем разведи их.</p></article>
+        <article><svg viewBox="0 0 180 90" aria-hidden="true"><circle class="grip-demo" cx="90" cy="45" r="30"/><path d="m25 35 12 10-12 10m130-20-12 10 12 10"/></svg><p class="eyebrow">02 · 5 сжатий</p><h3>Сожми мягкий мяч</h3><p>Раскрой ладонь, сожми кисть, затем снова раскрой её.</p></article>
+        <article><svg viewBox="0 0 180 90" aria-hidden="true"><circle cx="132" cy="45" r="27" stroke-dasharray="5 5"/><path d="M30 45h64m-9-8 9 8-9 8"/><circle class="hold-demo" cx="40" cy="45" r="10"/></svg><p class="eyebrow">03 · 3 цели по 2 секунды</p><h3>Проведи свет в цель</h3><p>Перемести открытую ладонь в круг и удерживай на месте.</p></article>
+        <article id="card-pairs"><svg viewBox="0 0 180 90" aria-hidden="true"><path d="M35 75V48l15-8 15 24 10-42 15 2 4 33 16-47 15 5-12 46 20-32 13 8-26 41Z"/><circle cx="50" cy="40" r="7" fill="#fcd34d"/><circle cx="118" cy="12" r="7" fill="#fcd34d"/></svg><p class="eyebrow">Выбранные пары · до 10 секунд на попытку</p><h3>Найди пару</h3><p>Соедини большой палец с выбранным. Частичный результат тоже сохранится.</p><button id="btn-choose-pairs">Выбрать пары</button></article>
+      <article id="card-ring"><svg viewBox="0 0 180 90" aria-hidden="true"><circle cx="90" cy="45" r="30"/><path d="M90 15h16l-6-6m6 6-6 6"/><circle cx="90" cy="15" r="5" fill="#fcd34d"/></svg><h3>Обведи кольцо</h3><p>Проведи кончиком пальца по 12 отметкам и вернись на старт. Измеряется экранный путь; можно двигать всей кистью.</p><button id="btn-choose-ring">Выбрать кольцо</button></article>
+      </div>
+      <section id="training-setup" class="setup-card" aria-label="Настройки тренировки">
+      <label class="training-choice">Выбрать занятие <select id="training-choice"><option value="guided">Базовая программа: 5 / 5 / 3</option><option id="option-pairs" value="opposition">Найди пару</option><option id="option-ring" value="ring">Обведи кольцо</option></select></label>
+      <fieldset id="ring-options" hidden><legend>Кольцо · 1 цель, до 15 секунд движения на попытку</legend><label>Палец <select id="ring-tip"><option value="8">Указательный</option><option value="12">Средний</option><option value="16">Безымянный</option><option value="20">Мизинец</option><option value="4">Большой</option></select></label></fieldset>
+      <fieldset id="pair-options" hidden>
+        <legend>Выбери удобные пары пальцев</legend>
+        <div class="pair-actions"><button id="pairs-all" type="button">Выбрать все 10 пар</button><button id="pairs-none" type="button">Снять выбор</button></div><p id="pair-selection" role="status"></p>
+        <label><input type="checkbox" id="pair-8" checked> Большой + указательный</label>
+        <label><input type="checkbox" id="pair-12" checked> Большой + средний</label>
+        <label><input type="checkbox" id="pair-16"> Большой + безымянный</label>
+        <label><input type="checkbox" id="pair-20"> Большой + мизинец</label>
+        <details id="experimental-pairs"><summary>Экспериментальные пары без большого пальца</summary>
+          <p>Выбери только удобные движения. Оценивается сближение на экране, не физическое касание. Эти пары ещё требуют проверки камерой.</p>
+          <label><input type="checkbox" id="pair-8-12"> Указательный + средний</label>
+          <label><input type="checkbox" id="pair-8-16"> Указательный + безымянный</label>
+          <label><input type="checkbox" id="pair-8-20"> Указательный + мизинец</label>
+          <label><input type="checkbox" id="pair-12-16"> Средний + безымянный</label>
+          <label><input type="checkbox" id="pair-12-20"> Средний + мизинец</label>
+          <label><input type="checkbox" id="pair-16-20"> Безымянный + мизинец</label>
+        </details>
+        <p>По 2 цели на выбранную пару. Одна попытка движения — до 10 секунд. Шесть пар без большого пальца экспериментальные.</p>
+      </fieldset>
+      <fieldset class="route-options"><legend>Добавить упражнения</legend><label id="route-guided-label"><input id="route-guided" type="checkbox"> Базовая программа</label><label id="route-opposition-label"><input id="route-opposition" type="checkbox"> Пары</label><label id="route-ring-label"><input id="route-ring" type="checkbox"> Кольцо</label></fieldset>
+      <p id="route-order" role="status"></p>
+      <label class="auto-row"><span>Автоматические переходы</span><input id="automatic-flow" type="checkbox" role="switch" checked></label>
+      <p>После выполнения или лимита попыток перейдём дальше.</p>
+      <details><summary>Ограничения переходов</summary><p>До двух оценённых попыток без успеха или 20 секунд на цель после подготовки. Время пауз и потери руки не учитывается. После двух сбоев оценки перейдём дальше без успеха; повторные сбои остановят маршрут для проверки камеры. После успеха — звезда, затем 3 секунды перехода. При отключении автоматических переходов лимита повторов и времени цели нет.</p></details>
+      <div id="setup-start"></div>
+      </section>
+      <p class="setup-note">Сядь удобно, направь камеру на руку и двигайся в комфортном диапазоне. Сначала покажи кисть целиком и подготовь пальцы к выбранному заданию.</p>
+    </section>
+    <ol id="tabs" class="steps" aria-label="Порядок заданий" hidden>
+      <li data-mode="pinch">1. Огоньки · Далее</li><li data-mode="grip">2. Мяч · Далее</li><li data-mode="hold">3. Цели · Далее</li>
+    </ol>
+    <p id="program-status" hidden>Подготовка к тренировке</p>
+    <section id="stage" hidden>
+      <h2 id="task-title" tabindex="-1">Собери 5 огоньков</h2>
+      <p id="task-description">Соедини большой и указательный пальцы. Разведи их перед следующим захватом.</p>
+      <svg id="pair-guide" viewBox="0 0 180 150" role="img" aria-label="Схема выбранной пары" hidden>
+        <path d="M65 145v-30L22 89q-10-12 2-18l30 25V32q0-14 14-14t12 14v43V18q0-14 12-14t12 14v57V29q0-14 12-14t12 14v53V50q0-14 12-14t12 14v61l-23 34"/>
+        <circle id="guide-tip-4" cx="24" cy="80" r="9"/><circle id="guide-tip-8" cx="67" cy="23" r="9"/>
+        <circle id="guide-tip-12" cx="92" cy="12" r="9"/><circle id="guide-tip-16" cx="116" cy="24" r="9"/><circle id="guide-tip-20" cx="140" cy="45" r="9"/>
+      </svg>
       <div id="score"></div>
-      <div id="hint"></div>
-      <pre id="debug" hidden></pre>
+      <div id="viewport">
+        <div id="success-star" hidden aria-hidden="true">★</div>
+        <p id="camera-placeholder">Здесь появится изображение камеры</p>
+        <video id="video" playsinline muted></video>
+        <canvas id="canvas" aria-hidden="true"></canvas>
+        <pre id="debug" hidden></pre>
+      </div>
     </section>
-    <section id="panel">
-      <button id="btn-start">Включить камеру</button>
-      <button id="btn-calibrate" disabled>Калибровка</button>
-      <button id="btn-dump">Dump</button>
+    <div id="hint"></div>
+    <div id="announcements" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+    <div id="live-controls"><section id="panel">
+      <label id="hand-label">Рука для тренировки <select id="hand-choice"><option value="unspecified">Не выбрана</option><option value="left">Левая</option><option value="right">Правая</option></select></label>
+      <button id="btn-start">Начать тренировку</button>
+      <button id="btn-pause" aria-pressed="false" disabled>Пауза</button>
+      <button id="btn-finish-attempt" hidden>Закончить попытку</button>
+      <button id="btn-skip-pair" hidden>Пропустить пару</button>
+      <button id="btn-calibrate" disabled hidden>Калибровка</button>
+      <button id="btn-dump" hidden>Dump</button>
     </section>
-    <section id="results" hidden></section>
+    </div>
+    <section id="results" aria-label="Текущие итоги тренировки" hidden></section>
+    <section id="history" aria-label="Мой прогресс" hidden></section>
+    <p class="app-note">Прототип тренажёра. Результаты описывают выполнение заданий. Видео не сохраняется в историю.</p>
   </main>
   <script type="module" src="/src/main.ts"></script>
 </body>

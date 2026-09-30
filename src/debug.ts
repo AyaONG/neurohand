@@ -3,8 +3,10 @@ import type { HandGeometry } from "./geometry";
 export type Capture = {
   timestamp: number;
   exercise: string;
+  videoWidth: number;
+  videoHeight: number;
   landmarks: { x: number; y: number; z: number }[];
-  expectedReading: { open: boolean; closed: boolean; error: { code: string; joints: number[]; message: string } | null };
+  observedReading: { open: boolean; closed: boolean; error: { code: string; joints: number[]; message: string } | null };
 };
 
 export function updateDebug(element: HTMLElement, g: HandGeometry | null, fps: number, extra: Record<string, string | number | null>): void {

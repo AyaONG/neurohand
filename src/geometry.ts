@@ -26,10 +26,12 @@ export function resolveConfig(overrides: Partial<Config> = {}): Config {
 
 export class HandGeometry {
   readonly pts: Point[];      // в пикселях, БЕЗ зеркалирования
+  readonly depths: readonly number[];
   readonly handSizeNorm: number;
   readonly handSize: number;  // расстояние 0–9
 
-  private constructor(pts: Point[], handSize: number, handSizeNorm: number) {
+  private constructor(pts: Point[], handSize: number, handSizeNorm: number, depths: number[]) {
+    this.depths = depths;
     this.pts = pts;
     this.handSize = handSize;
     this.handSizeNorm = handSizeNorm;
@@ -53,8 +55,10 @@ export class HandGeometry {
     const minimum = resolveConfig(overrides).MIN_HAND_SIZE_NORM;
     if (!Number.isFinite(handSizeNorm) || handSizeNorm <= 0 ||
         handSizeNorm + Number.EPSILON * minimum < minimum) return null;
-    return new HandGeometry(pts, handSize, handSizeNorm);
+    return new HandGeometry(pts, handSize, handSizeNorm, lm.map(p => p.z * w / handSize));
   }
+
+  depthDifference(a: number, b: number): number { return Math.abs(this.depths[a] - this.depths[b]); }
 
   dist(a: number, b: number): number {
     return Math.hypot(this.pts[a].x - this.pts[b].x, this.pts[a].y - this.pts[b].y);
