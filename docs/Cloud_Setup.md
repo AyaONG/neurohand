@@ -1,6 +1,18 @@
 # Настройка Supabase и Google входа для NeuroHand
 
-Этап 12 подготовлен локально на базе `2cc68ad` в `feature/neurohand-attempts`. Вход, разделение профилей, миграция и проверки готовы в репозитории. Настройки Supabase, Google Cloud и Vercel **ещё не применены и не проверены**: подключённых браузеров не обнаружено, публичные значения проекта и Production URL не предоставлены. В этапе 13 добавлена синхронизация финальных результатов при настроенном клиенте и входе; без env приложение по-прежнему работает гостем. Реальная облачная интеграция пока не подтверждена.
+Работа ведётся в `feature/neurohand-attempts`. Текущие предоставленные адреса: NeuroHand `https://neurohand.vercel.app/`, Supabase callback `https://aqrwweayorgzcclwsnje.supabase.co/auth/v1/callback`. Ошибка пользователя `Unsupported provider: provider is not enabled` указывает на выключенный Google в выбранном Supabase-проекте. Наличие VITE-переменных не включает провайдера. **Повторная публичная проверка 30.09.2026:** проект из текущей локальной конфигурации ответил HTTP 200, `external.google: true`. Значит, сейчас провайдер включён; прежняя ошибка может относиться к прошлому состоянию или другой сборке/проекту. Эта проверка не проверяет Client Secret и полный OAuth. Панели в этой задаче не изменялись; успешный реальный вход, RLS двух пользователей и синхронизация не подтверждены.
+
+## Исправление текущего входа владельцем
+
+1. В нужном Supabase-проекте открыть **Authentication → Sign In / Providers → Google**. Если Google выключен в проекте, используемом именно проблемной сборкой, включить его. Проверить OAuth Client ID и Client Secret из своего Google Cloud Web application. Сохранить. Secret вводить только в эту панель, никогда в `VITE_*`, Git или чат.
+2. В Google Cloud **Google Auth Platform → Clients → Web application → Authorized redirect URIs** указать **`https://aqrwweayorgzcclwsnje.supabase.co/auth/v1/callback`**, предварительно сверив с callback в панели Supabase. Authorized JavaScript origins: `https://neurohand.vercel.app`, для разрешённой локальной проверки `http://127.0.0.1:5173`. При Audience = Testing добавить нужные тестовые аккаунты.
+3. В Supabase **Authentication → URL Configuration**: Site URL **`https://neurohand.vercel.app/`**; Redirect URLs **`https://neurohand.vercel.app/`** и **`http://127.0.0.1:5173/`**. Последний адрес — выбранное локальное окружение: запуск `npm run dev -- --host 127.0.0.1 --port 5173 --strictPort`. `localhost` — другой origin; не ожидать общего localStorage.
+4. В приложении нажать «Войти» повторно. После выбора Google-аккаунта проверить возврат именно на корень текущего окружения, исчезновение одноразового code из URL и подпись о выполненном входе. Отмена/ошибка возврата должна оставить понятную возможность повторить вход гостем.
+
+`src/auth-provider.ts` делает только `GET /auth/v1/settings` с publishable apikey, без пользовательского JWT, cookies, admin или service_role. Требуется строго `external.google === true`; `false` и недоступный/непонятный ответ не перенаправляют браузер. Тайм-аут 4 секунды, повтор по новой кнопке. Это проверка включения провайдера, **не** доказательство корректного Client Secret, callback, RLS или успешного входа. `try/catch` SDK не перехватывает страницу ошибки, открытую уже после ухода с сайта.
+
+Источники: [публичный контракт Supabase Auth, GET settings](https://github.com/supabase/auth/blob/master/openapi.yaml), [настройка Google](https://supabase.com/docs/guides/auth/social-login/auth-google).
+
 
 ## Реализованные файлы
 
@@ -27,7 +39,7 @@ SDK: `@supabase/supabase-js` 2.117.2, зафиксирован в lock-файл�
 
 ## Какие значения ещё нужны
 
-1. Фактический стабильный **Production origin NeuroHand**, например адрес выбранного проекта Vercel; здесь он неизвестен, придумывать его нельзя.
+1. **Production origin NeuroHand** предоставлен: `https://neurohand.vercel.app`. Состояние развёртывания в этой задаче не проверено.
 2. **Supabase Project URL** из Connect, HTTPS без пути `/auth` или `/rest`.
 3. **Supabase Publishable key** вида `sb_publishable_…`. Клиент намеренно не принимает secret-ключи и JWT-ключи старого формата.
 4. Названия/идентификаторы выбранных проектов Supabase, Google Cloud и Vercel, чтобы не создать дубликаты в панелях.
@@ -58,8 +70,8 @@ Payload ограничен 512 KiB, объектом разрешённых ве
 
 В Supabase **Authentication → URL Configuration**:
 
-- Site URL: фактический стабильный Production URL NeuroHand.
-- Redirect URLs: точный `https://ВАШ_PRODUCTION_HOST/` с завершающим `/`.
+- Site URL: `https://neurohand.vercel.app/`.
+- Redirect URLs: `https://neurohand.vercel.app/` и `http://127.0.0.1:5173/`.
 - Код использует `new URL('/', location.origin).href`. Никакого отдельного `/auth/callback` маршрута и нового Vercel rewrite не требуется.
 
 Google возвращает пользователя на callback **Supabase**; Supabase возвращает на корень **NeuroHand**. Не менять эти адреса местами. Не добавлять широкие production-маски ради случайных Preview-развёртываний. Для отдельной тестовой среды/localhost разрешить только заранее выбранный точный адрес в соответствующем тестовом проекте. [Redirect URLs](https://supabase.com/docs/guides/auth/redirect-urls)

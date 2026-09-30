@@ -1,3 +1,4 @@
+import { googleProviderState, type ProviderState } from './auth-provider';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 export function cloudConfig(env: { VITE_SUPABASE_URL?: string; VITE_SUPABASE_PUBLISHABLE_KEY?: string }) {
@@ -8,7 +9,7 @@ export function cloudConfig(env: { VITE_SUPABASE_URL?: string; VITE_SUPABASE_PUB
     if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash ||
         (url.pathname !== '/' && url.pathname !== '') || !/^sb_publishable_[A-Za-z0-9_-]+$/.test(key ?? '')) throw Error('config');
     return { client: createClient(url.origin, key!, { auth: { flowType: 'pkce', detectSessionInUrl: false,
-      persistSession: true, autoRefreshToken: true } }), notice: '' };
+      persistSession: true, autoRefreshToken: true } }), checkGoogle: () => googleProviderState(url.origin, key!), notice: '' };
   } catch { return { client: null, notice: 'Прогресс сохраняется в этом браузере. Вход временно недоступен; можно заниматься без аккаунта.' }; }
 }
 
@@ -35,9 +36,11 @@ export class AuthController {
   private identity: (id: string | null) => void;
   private view: (state: AuthView) => void;
   private notice: string;
+  private checkGoogle: () => Promise<ProviderState>;
   constructor(client: SupabaseClient | null, identity: (id: string | null) => void,
-    view: (state: AuthView) => void, notice = 'Прогресс сохраняется в этом браузере. Вход пока недоступен.') {
-    this.client = client; this.identity = identity; this.view = view; this.notice = notice;
+    view: (state: AuthView) => void, notice = 'Прогресс сохраняется в этом браузере. Вход пока недоступен.',
+    checkGoogle: () => Promise<ProviderState> = async () => 'enabled') {
+    this.client = client; this.identity = identity; this.view = view; this.notice = notice; this.checkGoogle = checkGoogle;
   }
   private emit(text: string) { if (!this.disposed) this.view({ diagnostic: this.diagnostic, userId: this.userId, busy: this.busy, text, canSignOut: !!this.userId || this.blocked }); }
   private apply(id: string | null) {
@@ -77,8 +80,18 @@ export class AuthController {
   }
   async signIn(origin: string, beforeRedirect: () => void) {
     if (!this.client || this.busy || this.blocked || this.disposed) return;
-    this.busy = true; const revision = ++this.revision; this.emit('Открываем Google…'); beforeRedirect();
+    this.busy = true; const revision = ++this.revision; this.emit('Проверяем доступность входа Google…'); beforeRedirect();
     try {
+      const provider = await this.checkGoogle();
+      if (revision !== this.revision || this.disposed || this.userId) return;
+      if (provider !== 'enabled') {
+        this.diagnostic = provider === 'disabled' ? 'provider' : 'network'; this.busy = false;
+        this.emit(provider === 'disabled'
+          ? 'Вход через Google пока не включён на стороне сервиса. Прогресс сохраняется в этом браузере. Можно заниматься и повторить вход позже.'
+          : 'Не удалось проверить доступность входа. Проверь соединение и повтори. Прогресс сохраняется в этом браузере.');
+        return;
+      }
+      this.diagnostic = 'none'; this.emit('Открываем Google…');
       const { error } = await this.client.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: new URL('/', origin).href } });
       if (error) throw error;
     } catch (error) {

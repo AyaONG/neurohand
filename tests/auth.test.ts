@@ -87,3 +87,20 @@ it('exposes a safe debug category for provider failure without exposing credenti
   expect(JSON.stringify(m.view.mock.lastCall![0])).not.toContain('private-token');
   expect(m.auth.signInWithOAuth.mock.lastCall![0].options.redirectTo).toBe('http://127.0.0.1:5173/');
 });
+
+it.each(['disabled','unavailable'] as const)('blocks redirect when public settings are %s and allows an explicit retry', async state => {
+ const m=mock(), check=vi.fn(async()=>state as 'disabled'|'unavailable'|'enabled');
+ const c=new AuthController({auth:m.auth} as unknown as SupabaseClient,m.identity,m.view,'',check);
+ await c.start('https://neurohand.vercel.app/',vi.fn());
+ await c.signIn('https://neurohand.vercel.app',vi.fn());
+ expect(m.auth.signInWithOAuth).not.toHaveBeenCalled();expect(m.view.mock.lastCall![0].busy).toBe(false);
+ expect(m.view.mock.lastCall![0].text).toContain(state==='disabled'?'пока не включён':'Не удалось проверить');
+ check.mockResolvedValueOnce('enabled');await c.signIn('https://neurohand.vercel.app',vi.fn());
+ expect(m.auth.signInWithOAuth).toHaveBeenCalledOnce();
+});
+it('disposal while checking settings cannot redirect to an old login', async()=>{
+ const m=mock(), pending=Promise.withResolvers<'enabled'>();
+ const c=new AuthController({auth:m.auth} as unknown as SupabaseClient,m.identity,m.view,'',()=>pending.promise);
+ await c.start('https://app.example/',vi.fn());const wait=c.signIn('https://app.example',vi.fn());c.dispose();pending.resolve('enabled');await wait;
+ expect(m.auth.signInWithOAuth).not.toHaveBeenCalled();
+});

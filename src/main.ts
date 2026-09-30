@@ -675,7 +675,7 @@ const auth = new AuthController(cloud.client, switchProfile, state => {
   signInButton.disabled = signOutButton.disabled = state.busy;
   start.disabled = state.busy || running || starting;
   historyButton.disabled = resultsButton.disabled = state.busy;
-}, cloud.notice);
+}, cloud.notice, cloud.checkGoogle);
 signInButton.addEventListener('click', () => auth.signIn(location.origin, () => {
   if (sessionStarted) program = pauseProgram(program, 'manual', new Date().toISOString());
   stopCamera();
