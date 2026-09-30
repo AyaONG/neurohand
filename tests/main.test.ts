@@ -80,9 +80,10 @@ function memoryStorage() {
     setItem: vi.fn((key: string, value: string) => { values.set(key, value); }) };
 }
 async function setup(search = "", storage = memoryStorage()) {
-  elements = Object.fromEntries(["sync-panel", "sync-status", "btn-sync-retry", "btn-cloud-more", "btn-import-guest", "guest-import", "btn-export-json", "import-json", "transfer-status", "auth-status", "btn-sign-in", "btn-sign-out", "video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "ring-options", "ring-tip", "btn-choose-ring", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
+  elements = Object.fromEntries(["card-pairs", "card-ring", "option-pairs", "option-ring", "sync-panel", "sync-status", "btn-sync-retry", "btn-cloud-more", "btn-import-guest", "guest-import", "btn-export-json", "import-json", "transfer-status", "auth-status", "btn-sign-in", "btn-sign-out", "video", "canvas", "stage", "viewport", "task-title", "task-description", "hint", "score", "debug", "btn-start", "btn-calibrate", "btn-dump", "tabs", "panel", "results", "btn-results", "btn-pause", "hand-choice", "program-status", "history", "btn-history", "storage-notice", "home", "announcements", "camera-placeholder", "hand-label", "ring-options", "ring-tip", "btn-choose-ring", "training-choice", "pair-options", "pair-8", "pair-12", "pair-16", "pair-20", "pair-guide", "btn-finish-attempt", "btn-skip-pair", "btn-choose-pairs", "guide-tip-4", "guide-tip-8", "guide-tip-12", "guide-tip-16", "guide-tip-20"]
     .map(id => [id, Object.assign(new Element(), { id })]));
   elements.results.hidden = true;
+  Object.assign(elements['training-choice'], { value: 'guided' });
   modes = Object.fromEntries(["pinch", "grip", "hold"].map(mode => [mode, Object.assign(new Element(), { dataset: { mode } })]));
   elements.tabs.children = Object.values(modes);
   video = Object.assign(elements.video, { videoWidth: 640, videoHeight: 480, readyState: 2, currentTime: 0 });
@@ -604,4 +605,49 @@ it('offers unchecked guest choices and imports only selected finals with truthfu
   Object.assign(elements['guest-import'].children.filter(n => n.children.length === 2)[0].children[0], { checked: true });
   await elements['guest-import'].children.at(-1)!.fire('click'); await Promise.resolve();
   expect(syncMock.rows).toHaveLength(1);
+});
+
+it.each([
+  ['VITE_ENABLE_OPPOSITION', 'opposition', 'card-pairs', 'option-pairs', 'card-ring'],
+  ['VITE_ENABLE_RING', 'ring', 'card-ring', 'option-ring', 'card-pairs'],
+])('disables %s independently and blocks a forged selection without starting the camera', async (flag, mode, card, option, other) => {
+  vi.stubEnv(flag, 'false');
+  const memory = memoryStorage(); await setup('', memory);
+  expect(elements[card].hidden).toBe(true);
+  expect(elements[option].disabled).toBe(true);
+  expect(elements[other].hidden).toBe(false);
+  Object.assign(elements['training-choice'], { value: mode });
+  await elements['btn-start'].fire('click');
+  expect(mocks.camera).not.toHaveBeenCalled();
+  expect(memory.getItem('neurohand:progress:v3')).toBeNull();
+  Object.assign(elements['training-choice'], { value: 'guided' });
+  await elements['btn-start'].fire('click');
+  expect(mocks.camera).toHaveBeenCalledTimes(1);
+});
+
+it('preserves disabled ring progress on reload and allows finalizing it before a basic session', async () => {
+  const { createRingSession } = await import('../src/session');
+  const memory = memoryStorage();
+  const current = createRingSession(8);
+  memory.setItem('neurohand:progress:v3', JSON.stringify({ schemaVersion: 3, current, history: [] }));
+  vi.stubEnv('VITE_ENABLE_RING', 'false');
+  await setup('', memory);
+  expect(elements.results.querySelector('#btn-resume')!.disabled).toBe(true);
+  expect(mocks.camera).not.toHaveBeenCalled();
+  expect(JSON.parse(memory.getItem('neurohand:progress:v3')!).current.id).toBe(current.id);
+  await elements.results.querySelector('#btn-finish')!.fire('click');
+  const archived = JSON.parse(memory.getItem('neurohand:progress:v3')!);
+  expect(archived.history[0].id).toBe(current.id);
+  expect(archived.history[0].mode).toBe('ring');
+  await elements.results.querySelector('#btn-new')!.fire('click');
+  await elements['btn-start'].fire('click');
+  expect(JSON.parse(memory.getItem('neurohand:progress:v3')!).current.mode).toBe('guided');
+});
+
+it('uses unique release card IDs on the matching new exercises in the real HTML', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]);
+  expect(new Set(ids).size).toBe(ids.length);
+  expect(html.match(/<article id="card-pairs">[\s\S]*?<\/article>/)?.[0]).toContain('id="btn-choose-pairs"');
+  expect(html.match(/<article id="card-ring">[\s\S]*?<\/article>/)?.[0]).toContain('id="btn-choose-ring"');
 });

@@ -1,3 +1,4 @@
+import { modeEnabled } from './release-flags';
 import { SyncEngine, supabaseTransport } from './sync';
 import { exportAggregates, importAggregates, MAX_TRANSFER_BYTES } from './transfer';
 import { cloudConfig, AuthController } from './cloud';
@@ -58,7 +59,19 @@ const pairChoices = FINGER_TIPS.map(tip => ({ tip, input: document.querySelector
 const pairGuide = document.querySelector<SVGElement>('#pair-guide')!;
 const finishAttemptButton = document.querySelector<HTMLButtonElement>('#btn-finish-attempt')!;
 const skipPairButton = document.querySelector<HTMLButtonElement>('#btn-skip-pair')!;
-function chooseTraining(): void { ringOptions.hidden = trainingChoice.value !== 'ring'; pairOptions.hidden = trainingChoice.value !== 'opposition'; }
+for (const [mode, card, option] of [
+  ['opposition', 'card-pairs', 'option-pairs'], ['ring', 'card-ring', 'option-ring'],
+] as const) {
+  const enabled = modeEnabled(mode);
+  document.querySelector<HTMLElement>(`#${card}`)!.hidden = !enabled;
+  const entry = document.querySelector<HTMLOptionElement>(`#${option}`)!;
+  entry.hidden = entry.disabled = !enabled;
+}
+function chooseTraining(): void {
+  if (!modeEnabled(trainingChoice.value)) trainingChoice.value = 'guided';
+  ringOptions.hidden = trainingChoice.value !== 'ring';
+  pairOptions.hidden = trainingChoice.value !== 'opposition';
+}
 trainingChoice.addEventListener('change', chooseTraining);
 document.querySelector<HTMLButtonElement>('#btn-choose-pairs')!.addEventListener('click', () => {
   trainingChoice.value = 'opposition'; chooseTraining(); trainingChoice.focus();
@@ -187,6 +200,7 @@ function showExercise(): void {
 
 function resumeExercise(): void {
   if (program.session.status !== "in_progress") return;
+  if (!modeEnabled(program.session.mode)) { showResults(); return; }
   showExercise();
   resetFrameClock();
   if (program.phase !== "intro") program = beginProgram(program);
@@ -239,6 +253,13 @@ function showResults(): void {
   resultsButton.textContent = program.session.status === "in_progress" ? "К упражнениям" : "Итоги";
   persist(performance.now(), true);
   renderResults(results, program.session, resumeExercise, finishTraining, newTraining, store.storageLabel(program.session.id));
+  if (program.session.status === 'in_progress' && !modeEnabled(program.session.mode)) {
+    const resume = results.querySelector<HTMLButtonElement>('#btn-resume');
+    if (resume) resume.disabled = true;
+    const note = document.createElement('p');
+    note.textContent = 'Этот режим временно отключён. Заверши занятие с текущими результатами, затем выбери базовую программу.';
+    results.append(note);
+  }
 }
 
 function setDebugVisibility(): void {
@@ -380,6 +401,9 @@ function loop(timestampMs: number): void {
 
 start.addEventListener("click", async () => {
   if (running || starting || start.disabled || program.session.status !== "in_progress") return;
+  if (!modeEnabled(sessionStarted ? program.session.mode : trainingChoice.value)) {
+    setHint('Этот режим временно отключён. Сохрани текущие итоги и выбери базовую программу.', true); return;
+  }
   if (!sessionStarted && trainingChoice.value === 'opposition') {
     const allowed = pairChoices.filter(choice => choice.input.checked).map(choice => choice.tip);
     if (!allowed.length) { setHint('Выбери хотя бы одну пару пальцев', true); return; }
