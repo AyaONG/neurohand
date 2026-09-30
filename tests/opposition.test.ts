@@ -110,12 +110,13 @@ describe('pair program and terminal attempts', () => {
     h.run(3000, geometry(12, 0.1, false, 640, 480, true));
     expect(h.p.session.exercises.opposition!.reps).toBe(0);
     h.run(400); h.frame(geometry(12)); h.run(1000);
-    expect(h.p.session.attempts!.records).toHaveLength(0);
+    expect(h.p.session.attempts!.records).toHaveLength(1);
+    expect(h.p.session.attempts!.records[0].outcome).toBe('incomplete');
     expect(h.p.session.attempts!.active).toBeNull();
     h.close(); expect(h.p.session.exercises.opposition!.reps).toBe(1);
   });
 
-  it('keeps a filtered partial below a one-frame outlier and finishes the route with zero full successes', () => {
+  it('keeps a filtered partial below an outlier and retries the same goal', () => {
     const h = harness(); h.prepare();
     h.run(400, geometry(12, 0.4));
     const progress = h.p.session.attempts!.active!.metrics.progress;
@@ -126,9 +127,10 @@ describe('pair program and terminal attempts', () => {
     expect(h.p.session.attempts!.records[0].outcome).toBe('partial');
     h.run(800); h.run(400, geometry(12, 0.4));
     h.p = finishOppositionAttempt(h.p, wall(h.time));
-    expect(h.p.session.status).toBe('completed');
-    expect(pairCounts(h.p.session)).toMatchObject({ completed: 0, partial: 2, consumed: 2 });
-    expect(getResults(h.p.session).rows[0].text).toContain('0 / 2 полностью · 2 частично');
+    expect(h.p.session.status).toBe('in_progress');
+    expect(pairCounts(h.p.session)).toMatchObject({ completed: 0, partial: 2, consumed: 0 });
+    expect(h.p.session.opposition!.cursor).toBe(0);
+    expect(getResults(h.p.session).rows[0].text).toContain('0 / 2');
     expect(parseSession(h.p.session)).not.toBeNull();
   });
 
@@ -174,9 +176,9 @@ describe('pair program and terminal attempts', () => {
     h.p = beginProgram(h.p); h.run(400); h.run(400, geometry(12, 0.4));
     h.p = pauseProgram(h.p, 'manual', wall(h.time));
     expect(h.p.session.attempts!.records[1].outcome).toBe('partial');
-    expect(h.p.session.opposition!.awaitingRelease).toBe(true);
+    expect(h.p.session.opposition!.awaitingRelease).toBe(false);
     h.p = beginProgram(h.p); h.close(2000); expect(h.p.session.opposition!.cursor).toBe(0);
-    h.run(800); expect(h.p.session.opposition!.cursor).toBe(1);
+    h.run(800); expect(h.p.session.opposition!.cursor).toBe(0);
   });
 
   it('skips only before an active movement, does not invent metrics, and stays paused when skipping on pause', () => {
@@ -187,7 +189,7 @@ describe('pair program and terminal attempts', () => {
     h.p = beginProgram(h.p); h.run(800); h.run(400, geometry(12, 0.4));
     const active = h.p; h.p = skipOppositionPair(h.p, wall(h.time)); expect(h.p).toBe(active);
     h.p = finishOppositionAttempt(h.p, wall(h.time));
-    expect(h.p.session.status).toBe('completed');
+    expect(h.p.session.status).toBe('in_progress');
     expect(pairCounts(h.p.session)).toMatchObject({ skipped: 1, partial: 1, completed: 0 });
   });
 });
@@ -227,4 +229,61 @@ describe('pair persistence', () => {
     const stopped = stopProgram(beginProgram(createProgram(createOppositionSession([8]))), new Date().toISOString());
     expect(parseSession(stopped.session)?.status).toBe('stopped');
   });
+});
+
+it('one goal: two observed wrong-pair returns then success; three evaluated attempts survive reload', async () => {
+  const { goalRows, successText, currentGoalText } = await import('../src/goals');
+  const h = harness(); h.prepare();
+  for (let n = 0; n < 2; n++) {
+    h.run(700, geometry(8));
+    h.run(800);
+    expect(h.p.session.opposition!.cursor).toBe(0);
+    expect(h.p.session.attempts!.records[n].outcome).toBe('incomplete');
+    expect(h.p.session.attempts!.active).toBeNull();
+  }
+  expect(currentGoalText(h.p.session)).toContain('Цель 1 из 2 · Попытка 3');
+  const baseline = geometry().nd(4, 12);
+  for (let n = 0; n < 80; n++) h.frame(geometry(12, baseline - (baseline - 0.1) * n / 79));
+  h.close(600);
+  const records = h.p.session.attempts!.records;
+  expect(records.map(a => a.outcome)).toEqual(['incomplete', 'incomplete', 'completed']);
+  expect(new Set(records.map(a => a.goalId)).size).toBe(1);
+  expect(records.map(a => a.attemptOrder)).toEqual([1, 2, 3]);
+  expect(records[2].activeMs).toBeGreaterThan(1000);
+  expect(successText(goalRows(h.p.session.attempts)![0].toSuccess)).toBe('Выполнено с третьей попытки');
+  h.close(2000); expect(h.p.session.attempts!.records).toHaveLength(3);
+  const m = memory(); new ProgressStore(() => m).save(h.p.session, h.time, true);
+  const restored = new ProgressStore(() => m).data.current!;
+  expect(goalRows(restored.attempts)![0]).toMatchObject({ completed: true, toSuccess: 3 });
+  expect(restored.exercises.opposition!.reps).toBe(1);
+});
+
+it('excludes tracking interruptions and skips from attempts to success and validates goal links', async () => {
+  const { goalRows } = await import('../src/goals');
+  const h = harness(); h.prepare(); h.run(600, geometry(12, 0.4));
+  h.run(100, null); h.run(800);
+  expect(h.p.session.attempts!.records[0].outcome).toBe('unscorable');
+  h.close();
+  expect(goalRows(h.p.session.attempts)![0]).toMatchObject({ completed: true, toSuccess: 1 });
+  const broken = structuredClone(h.p.session);
+  broken.attempts!.records[1].goalId = 'foreign';
+  expect(parseSession(broken)).toBeNull();
+  h.run(800); h.p = skipOppositionPair(h.p, wall(h.time));
+  expect(goalRows(h.p.session.attempts)![1]).toMatchObject({ completed: false, toSuccess: null });
+});
+
+it('preserves historical finals without inventing run/goal associations or changing their payload', () => {
+  const h = harness(); h.prepare(); h.close(); h.run(800); h.close();
+  const old = structuredClone(h.p.session);
+  delete old.attempts!.runs;
+  for (const a of old.attempts!.records) {
+    delete a.exerciseRunId; delete a.goalId; delete a.attemptOrder;
+  }
+  const m = memory();
+  m.setItem(STORAGE_KEY, JSON.stringify({ schemaVersion: 3, history: [old], current: null }));
+  const raw = m.getItem(STORAGE_KEY);
+  const loaded = new ProgressStore(() => m);
+  expect(loaded.data.history[0]).toEqual(old);
+  expect(m.getItem(STORAGE_KEY)).toBe(raw);
+  expect(loaded.data.history[0].attempts!.runs).toBeUndefined();
 });

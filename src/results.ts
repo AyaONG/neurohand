@@ -1,3 +1,4 @@
+import { goalRows, successText } from './goals';
 import { attemptDetail, attemptText, ringMetric } from './progress';
 import { pairCounts } from './opposition';
 import type { Session } from "./session";
@@ -13,7 +14,7 @@ export function getResults(session: Session): { empty: boolean; rows: { exercise
   if (session.mode === 'opposition') {
     const c = pairCounts(session);
     return { empty: !session.exercises.opposition!.started, rows: [{ exercise: 'opposition',
-      text: `Найди пару: ${c.completed} / ${session.opposition!.sequence.length} полностью · ${c.partial} частично · ${c.incomplete} не завершено · ${c.skipped} пропущено` }] };
+      text: `Цели выполнены: ${c.completed} / ${session.opposition!.sequence.length}` }] };
   }
   return {
     empty: Object.values(session.exercises).every(result => !result.started),
@@ -81,7 +82,19 @@ export function renderResults(container: HTMLElement, session: Session, onResume
   const attemptHeading = document.createElement('h3'); attemptHeading.textContent = 'Статусы попыток';
   const breakdown = document.createElement('p'); breakdown.textContent = attemptText(session);
   const attemptList = document.createElement('ul');
-  for (const a of session.attempts?.records ?? []) {
+  const goals = goalRows(session.attempts);
+  if (goals) for (const goal of goals) {
+    const item = document.createElement('li');
+    item.textContent = `${labels[goal.exerciseId]} · Цель ${goal.index + 1}: ${successText(goal.toSuccess)}`;
+    const children = document.createElement('ul');
+    for (const a of goal.attempts) {
+      const detail = document.createElement('li');
+      detail.textContent = `Попытка ${a.attemptOrder}: ${attemptDetail(a, debug)}`;
+      children.append(detail);
+    }
+    item.append(children); attemptList.append(item);
+  }
+  if (!goals) for (const a of session.attempts?.records ?? []) {
     const item = document.createElement('li'); item.textContent = attemptDetail(a, debug); attemptList.append(item);
   }
   container.append(attemptHeading, breakdown, attemptList);

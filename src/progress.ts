@@ -47,7 +47,7 @@ export function conditionsKey(s: Session, exercise: ExerciseFilter = 'all'): str
   const rules = ids.map(id => [id, [...new Set(selectedAttempts(s, id).map(a => JSON.stringify([
     a.rulesVersion, a.protocolVersion, a.recognizerVersion, a.settings.maxActiveMs, a.settings.partialRatio ?? null, a.settings.target, a.settings.holdTargetMs, a.settings.targetRadiusRatio,
   ])))].sort()]);
-  return JSON.stringify([ids, s.mode, s.hand, s.protocolId, s.recognitionVersion,
+  return JSON.stringify([s.attempts?.runs ? 'goals-v1' : 'legacy-goals-unknown', ids, s.mode, s.hand, s.protocolId, s.recognitionVersion,
     s.settings, s.opposition ? [s.opposition.rulesVersion, s.opposition.allowed, s.opposition.sequence] : null,
     s.ring ?? null, s.attempts?.historyComplete ?? null, rules]);
 }

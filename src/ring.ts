@@ -29,7 +29,7 @@ export function ringLayout(width: number, height: number) {
 }
 export const markAngle = (index: number) => (index + 0.5) * Math.PI * 2 / 12;
 export const ringPoint = (r: ReturnType<typeof ringLayout>, angle: number): Point => ({ x: r.x + r.r * Math.sin(angle), y: r.y - r.r * Math.cos(angle) });
-export const finishesRing = (a: Attempt) => ['completed', 'partial', 'incomplete'].includes(a.outcome!) && !['pause', 'results'].includes(a.endReason!);
+export const finishesRing = (a: Attempt) => (a.goalId ? a.outcome === 'completed' : ['completed', 'partial', 'incomplete'].includes(a.outcome!)) && !['pause', 'results'].includes(a.endReason!);
 export function settleRing(s: Session): Session {
   if (s.mode !== 'ring') return s;
   const records = s.attempts!.records, all = [...records, ...(s.attempts!.active ? [s.attempts!.active] : [])];

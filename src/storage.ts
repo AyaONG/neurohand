@@ -29,6 +29,11 @@ export function parseSession(v: unknown): Session | null {
   if (v.status === 'in_progress' ? v.endedAt !== null : !date(v.endedAt) || Date.parse(v.endedAt) < Date.parse(v.startedAt)) return null;
   const attempts = v.schemaVersion === 2 ? null : parseAttemptLog(v.attempts);
   if (attempts === undefined || (attempts?.active && (v.status !== 'in_progress' || attempts.active.exerciseId !== v.currentExercise))) return null;
+  if (attempts?.runs) {
+    const expected = v.mode === 'guided' ? ['pinch','grip','hold'] : [v.mode];
+    if (attempts.runs.length !== expected.length || attempts.runs.some(r => !expected.includes(r.exerciseId) ||
+        r.goalIds.length !== v.exercises[r.exerciseId]?.target)) return null;
+  }
   const s = v.settings;
   if (![s.pinchTarget, s.gripTarget, s.holdTargetCount].every(n => count(n) && n > 0) ||
       !number(s.holdTargetMs) || s.holdTargetMs <= 0 || !number(s.targetRadiusRatio) || s.targetRadiusRatio <= 0 || s.targetRadiusRatio > 1) return null;
@@ -61,6 +66,7 @@ export function parseSession(v: unknown): Session | null {
     const used = new Set<number>();
     for (const a of records) {
       const i = a.settings.sequenceIndex;
+      if (attempts.runs && a.goalId !== attempts.runs[0].goalIds[i!]) return null;
       if (a.exerciseId !== 'opposition' || i === undefined || i > opposition.cursor ||
           a.settings.pairTip !== opposition.sequence[i] || a.settings.target !== opposition.sequence.length ||
           (a.metrics.kind === 'closure' && a.metrics.successDistance !== PAIR_THRESHOLDS[a.settings.pairTip!].close) ||

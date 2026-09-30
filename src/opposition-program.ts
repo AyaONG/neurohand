@@ -1,3 +1,4 @@
+import { goalLink, goalRows, successText } from './goals';
 import type { Program, ProgramFrame } from './program';
 import type { Attempt, AttemptEndReason, AttemptOutcome } from './attempts';
 import { closeActive, finishAttempt, interruptAttempt, observeAttempt, observedOutcome, startAttempt } from './attempts';
@@ -26,7 +27,7 @@ function terminal(p: Program, outcome: AttemptOutcome, reason: AttemptEndReason,
 }
 function newAttempt(p: Program, wallTime: string, skipped = false): Attempt {
   const tip = currentPair(p.session), state = p.oppositionState;
-  return { attemptId: crypto.randomUUID(), exerciseId: 'opposition', protocolVersion: p.session.protocolId,
+  return { attemptId: crypto.randomUUID(), ...goalLink(p.session), exerciseId: 'opposition', protocolVersion: p.session.protocolId,
     recognizerVersion: R.recognizerVersion, hand: p.session.hand, rulesVersion: R.version,
     settings: { target: p.session.opposition!.sequence.length, holdTargetMs: p.session.settings.holdTargetMs,
       targetRadiusRatio: p.session.settings.targetRadiusRatio, maxActiveMs: R.maxActiveMs,
@@ -86,12 +87,15 @@ export function stepOppositionProgram(previous: Program, frame: ProgramFrame): P
     if (state.openSince !== null && now - state.openSince >= R.readyMs) {
       // The old target remains visible until release is actually observed, including after reload.
       return { ...p, success: null, phase: 'preparing', oppositionState: emptyOppositionState(),
-        session: { ...p.session, opposition: { ...p.session.opposition!, cursor: p.session.opposition!.cursor + 1, awaitingRelease: false } } };
+        session: { ...p.session, opposition: { ...p.session.opposition!, cursor: p.session.opposition!.cursor + Number(p.session.attempts!.records.some(a => a.settings.sequenceIndex === p.session.opposition!.cursor && consumesPair(a))), awaitingRelease: false } } };
     }
     return { ...p, oppositionState: state };
   }
   if (state.baseline === null) {
-    if (!reading!.open) return { ...p, phase: 'preparing', oppositionState: emptyOppositionState() };
+    const last = p.session.attempts!.records.at(-1);
+    const retryBaseline = last?.goalId && last.settings.sequenceIndex === p.session.opposition!.cursor && last.metrics.kind === 'closure'
+      ? last.metrics.startDistance : null;
+    if (!reading!.open || (retryBaseline !== null && distance < retryBaseline - R.minRange / 4)) return { ...p, phase: 'preparing', oppositionState: emptyOppositionState() };
     state.openSince ??= now; sample();
     if (now - state.openSince >= R.readyMs) {
       const values = state.samples.map(s => s.distance).sort((a, b) => a - b);
@@ -104,7 +108,7 @@ export function stepOppositionProgram(previous: Program, frame: ProgramFrame): P
   let justStarted = false;
   if (!p.session.attempts!.active) {
     const moved = (state.baseline - distance) / (state.baseline - close) >= R.intentRatio;
-    if (!moved || reading!.error) return { ...p, oppositionState: { ...state, intentSince: null, intentWall: null } };
+    if ((!moved && reading!.error?.code !== 'WRONG_FINGER') || reading!.error?.code === 'AMBIGUOUS_PAIR') return { ...p, oppositionState: { ...state, intentSince: null, intentWall: null } };
     state.intentSince ??= now; state.intentWall ??= frame.wallTime;
     if (now - state.intentSince < R.intentMs) return { ...p, oppositionState: state };
     p = { ...p, oppositionState: state };
@@ -135,9 +139,14 @@ export function oppositionInstruction(p: Program): string {
   const task = pairTask(currentPair(p.session));
   if (p.session.opposition!.awaitingRelease) {
     const a = p.session.attempts!.records.find(a => a.settings.sequenceIndex === p.session.opposition!.cursor && consumesPair(a));
-    const result = a?.outcome === 'partial' ? 'Частичный результат сохранён.' : a?.outcome === 'incomplete' ? 'Попытка сохранена.' : a?.endReason === 'skip' ? 'Пара пропущена.' : 'Пара выполнена.';
+    const row = goalRows(p.session.attempts)?.find(g => g.goalId === a?.goalId);
+    const result = row?.completed ? successText(row.toSuccess) + '.' : a?.outcome === 'partial' ? 'Частичный результат сохранён.' : a?.outcome === 'incomplete' ? 'Попытка сохранена.' : a?.endReason === 'skip' ? 'Пара пропущена.' : 'Пара выполнена.';
     return `${result} Разведи пальцы перед следующим заданием`;
   }
-  if (p.oppositionState.baseline === null) return `Сначала разведи большой и выбранный пальцы. Затем: ${task.toLowerCase()}`;
+  if (p.oppositionState.baseline === null) {
+    const last = p.session.attempts?.records.at(-1);
+    const retry = last && last.settings.sequenceIndex === p.session.opposition!.cursor ? 'Попытка сохранена. Повтори ту же цель. ' : '';
+    return `${retry}Сначала разведи пальцы. Затем: ${task.toLowerCase()}`;
+  }
   return p.session.attempts!.active ? `${task}. Можно закончить попытку с текущим результатом` : task;
 }

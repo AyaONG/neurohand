@@ -1,3 +1,4 @@
+import type { ExerciseRun } from './goals';
 import type { RingSettings } from './ring';
 import type { FingerTip } from './opposition';
 import type { ExerciseId } from './types';
@@ -15,6 +16,7 @@ export type AttemptMetrics =
   | { kind: 'closure'; startDistance: number; successDistance: number; bestDistance: number; progress: number }
   | { kind: 'hold'; bestHoldMs: number; targetMs: number; progress: number };
 export type Attempt = {
+  exerciseRunId?: string; goalId?: string; attemptOrder?: number;
   attemptId: string; exerciseId: ExerciseId; protocolVersion: string; recognizerVersion: string;
   hand: 'left' | 'right' | 'unspecified'; rulesVersion: string;
   settings: { target: number; holdTargetMs: number; targetRadiusRatio: number; maxActiveMs: number; pairTip?: FingerTip; sequenceIndex?: number; partialRatio?: number; ring?: RingSettings };
@@ -24,7 +26,7 @@ export type Attempt = {
   interruptions: { count: number; durationMs: number };
   metrics: AttemptMetrics;
 };
-export type AttemptLog = { historyComplete: boolean; records: Attempt[]; active: Attempt | null };
+export type AttemptLog = { runs?: ExerciseRun[]; historyComplete: boolean; records: Attempt[]; active: Attempt | null };
 export const emptyAttempts = (historyComplete = true): AttemptLog => ({ historyComplete, records: [], active: null });
 
 export function startAttempt(log: AttemptLog, attempt: Attempt): AttemptLog {

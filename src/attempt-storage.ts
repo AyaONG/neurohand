@@ -21,6 +21,8 @@ function parseAttempt(v: unknown, active: boolean): Attempt | null {
       !['confirmed', 'returned', 'manual', 'pause', 'results', 'visibility', 'tracking', 'camera', 'reload', 'resize', 'timeout', 'skip', 'off_path', 'jump'].includes(v.endReason) ||
       !date(v.endedAt) || Date.parse(v.endedAt) < Date.parse(v.lastObservedAt)) return null;
   if ((v.outcome === 'completed') !== (v.endReason === 'confirmed')) return null;
+  const linked = v.goalId !== undefined || v.exerciseRunId !== undefined || v.attemptOrder !== undefined;
+  if (linked && (!text(v.goalId) || !text(v.exerciseRunId) || !count(v.attemptOrder) || v.attemptOrder < 1)) return null;
   const s = v.settings, m = v.metrics;
   if (!count(s.target) || s.target === 0 || !number(s.holdTargetMs) || s.holdTargetMs === 0 ||
       !number(s.targetRadiusRatio) || s.targetRadiusRatio === 0 || s.targetRadiusRatio > 1 ||
@@ -47,7 +49,7 @@ function parseAttempt(v: unknown, active: boolean): Attempt | null {
         m.startDistance <= m.successDistance || m.bestDistance > m.startDistance) return null;
     metrics = { kind: 'closure', startDistance: m.startDistance, successDistance: m.successDistance, bestDistance: m.bestDistance, progress: m.progress };
   }
-  return { attemptId: v.attemptId, exerciseId: v.exerciseId, protocolVersion: v.protocolVersion,
+  return { ...(linked ? { goalId: v.goalId, exerciseRunId: v.exerciseRunId, attemptOrder: v.attemptOrder } : {}), attemptId: v.attemptId, exerciseId: v.exerciseId, protocolVersion: v.protocolVersion,
     recognizerVersion: v.recognizerVersion, hand: v.hand, rulesVersion: v.rulesVersion,
     settings: { target: s.target, holdTargetMs: s.holdTargetMs, targetRadiusRatio: s.targetRadiusRatio, maxActiveMs: s.maxActiveMs,
       ...(ring ? { ring } : {}),
@@ -69,5 +71,27 @@ export function parseAttemptLog(v: unknown): AttemptLog | null | undefined {
   }
   const active = v.active === null ? null : parseAttempt(v.active, true);
   if ((v.active !== null && !active) || (active && seen.has(active.attemptId))) return undefined;
-  return { historyComplete: v.historyComplete, records, active };
+  let runs: AttemptLog['runs'];
+  if (v.runs !== undefined) {
+    if (!Array.isArray(v.runs) || !v.runs.length || v.runs.length > 3) return undefined;
+    const allIds = new Set<string>(), exercises = new Set<string>();
+    runs = [];
+    for (const r of v.runs) {
+      if (!object(r) || !text(r.exerciseRunId) || !['pinch','grip','hold','opposition','ring'].includes(r.exerciseId) ||
+          exercises.has(r.exerciseId) || allIds.has(r.exerciseRunId) || !Array.isArray(r.goalIds) || !r.goalIds.length || r.goalIds.length > 100 ||
+          !r.goalIds.every(text)) return undefined;
+      allIds.add(r.exerciseRunId); exercises.add(r.exerciseId);
+      for (const id of r.goalIds) { if (allIds.has(id)) return undefined; allIds.add(id); }
+      runs.push({ exerciseRunId: r.exerciseRunId, exerciseId: r.exerciseId, goalIds: [...r.goalIds] });
+    }
+    const orders = new Map<string, number>(), closed = new Set<string>();
+    for (const a of [...records, ...(active ? [active] : [])]) {
+      const run = runs.find(r => r.exerciseRunId === a.exerciseRunId);
+      if (!run || run.exerciseId !== a.exerciseId || !a.goalId || !run.goalIds.includes(a.goalId) || closed.has(a.goalId) ||
+          a.attemptOrder !== (orders.get(a.goalId) ?? 0) + 1) return undefined;
+      orders.set(a.goalId, a.attemptOrder);
+      if (a.outcome === 'completed' || a.endReason === 'skip') closed.add(a.goalId);
+    }
+  } else if ([...records, ...(active ? [active] : [])].some(a => a.goalId)) return undefined;
+  return { ...(runs ? { runs } : {}), historyComplete: v.historyComplete, records, active };
 }

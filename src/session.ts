@@ -1,3 +1,4 @@
+import { createRuns } from './goals';
 import { ringSettings, settleRing, type RingTip, type RingSettings } from './ring';
 import { emptyAttempts, closeActive, type AttemptLog } from './attempts';
 import { createOppositionPlan, settleOpposition, PAIR_RULES, type FingerTip, type OppositionPlan } from './opposition';
@@ -34,7 +35,7 @@ export type RepConfirmed = {
 
 export function createSession(id = crypto.randomUUID(), startedAt = new Date().toISOString()): Session {
   return {
-    schemaVersion: 3, attempts: emptyAttempts(), id, startedAt, endedAt: null, status: "in_progress", paused: false,
+    schemaVersion: 3, attempts: { ...emptyAttempts(), runs: createRuns([['pinch', 5], ['grip', 5], ['hold', 3]]) }, id, startedAt, endedAt: null, status: "in_progress", paused: false,
     mode: "guided", protocolId: "guided-v1", recognitionVersion: "landmarks-v1-norm008",
     hand: "unspecified", currentExercise: "pinch",
     settings: { pinchTarget: 5, gripTarget: 5, holdTargetCount: 3, holdTargetMs: 2000, targetRadiusRatio: 0.12 },
@@ -101,11 +102,11 @@ export function finishSession(session: Session, status: "completed" | "stopped",
 export function createOppositionSession(allowed: FingerTip[], id = crypto.randomUUID(), startedAt = new Date().toISOString(), random = Math.random): Session {
   const base = createSession(id, startedAt), opposition = createOppositionPlan(allowed, random);
   return { ...base, mode: 'opposition', protocolId: 'opposition-v1', recognitionVersion: PAIR_RULES.recognizerVersion,
-    currentExercise: 'opposition', opposition, exercises: { ...base.exercises,
+    currentExercise: 'opposition', opposition, attempts: { ...emptyAttempts(), runs: createRuns([['opposition', opposition.sequence.length]]) }, exercises: { ...base.exercises,
       opposition: { reps: 0, target: opposition.sequence.length, started: false, activeMs: 0, promptEpisodes: {}, bestHoldMs: null } } };
 }
 
 export function createRingSession(tip: RingTip = 8, id = crypto.randomUUID(), startedAt = new Date().toISOString()): Session {
   const base = createSession(id, startedAt);
-  return settleRing({ ...base, mode: 'ring', currentExercise: 'ring', protocolId: 'ring-v1', recognitionVersion: 'ring-screen-v1', ring: ringSettings(tip) });
+  return settleRing({ ...base, mode: 'ring', currentExercise: 'ring', protocolId: 'ring-v1', recognitionVersion: 'ring-screen-v1', ring: ringSettings(tip), attempts: { ...emptyAttempts(), runs: createRuns([['ring', 1]]) } });
 }

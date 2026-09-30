@@ -1,3 +1,4 @@
+import { currentGoalText } from './goals';
 import { modeEnabled } from './release-flags';
 import { SyncEngine, supabaseTransport } from './sync';
 import { exportAggregates, importAggregates, MAX_TRANSFER_BYTES } from './transfer';
@@ -135,14 +136,14 @@ function updateScore(): void {
     taskTitle.textContent = `Обведи кольцо · ${RING_NAMES[program.session.ring!.tip]}`;
     taskDescription.textContent = 'Экранный путь кончика. Можно двигать всей кистью. По часовой стрелке, до 15 с на попытку.';
     score.textContent = `Отметки: ${metrics?.kind === 'ring' ? metrics.marks : 0} / 12 · затем вернись на старт`;
-    programStatus.textContent = 'Одно задание · частичный путь тоже сохранится'; tabs.hidden = true; return;
+    programStatus.textContent = currentGoalText(program.session) || 'Одно задание · частичный путь тоже сохранится'; tabs.hidden = true; return;
   }
   if (pairs) {
     const tip = currentPair(program.session), counts = pairCounts(program.session), plan = program.session.opposition!;
     taskTitle.textContent = `Найди пару · большой + ${FINGER_NAMES[tip]}`;
     taskDescription.textContent = pairTask(tip);
     score.textContent = `Задания: ${counts.consumed} / ${plan.sequence.length} · Полностью: ${counts.completed}`;
-    programStatus.textContent = `Пара ${plan.cursor + 1} из ${plan.sequence.length}`;
+    programStatus.textContent = currentGoalText(program.session) || `Пара ${plan.cursor + 1} из ${plan.sequence.length}`;
     pairGuide.setAttribute('aria-label', pairTask(tip));
     for (const point of [4, ...FINGER_TIPS]) document.querySelector(`#guide-tip-${point}`)!.classList.toggle('selected', point === 4 || point === tip);
     tabs.hidden = true;
@@ -163,7 +164,7 @@ function updateScore(): void {
     tab.setAttribute("aria-current", id === mode ? "step" : "false");
   });
   const status = program.phase === "preparing" ? "Подготовка руки"
-    : program.phase === "paused" ? "Тренировка на паузе" : `Шаг ${EXERCISES.indexOf(mode as BasicExerciseId) + 1} из 3`;
+    : program.phase === "paused" ? "Тренировка на паузе" : (currentGoalText(program.session) || `Шаг ${EXERCISES.indexOf(mode as BasicExerciseId) + 1} из 3`);
   if (programStatus.textContent !== status) programStatus.textContent = status;
 }
 

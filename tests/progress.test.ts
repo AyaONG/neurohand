@@ -13,7 +13,7 @@ function attempt(s: Session, outcome: Attempt['outcome'], marks = 8, reason: Att
     interruptions: { count: 0, durationMs: 0 }, metrics: { kind: 'ring', marks, returned: outcome === 'completed', pathLength: 5, progress: marks / 12 } };
 }
 function ring(id: string, marks = 8) {
-  let s = createRingSession(8, id, wall); s.hand = 'left';
+  let s = createRingSession(8, id, wall); s.hand = 'left'; delete s.attempts!.runs;
   s.attempts!.records = [attempt(s, marks === 12 ? 'completed' : 'partial', marks, marks === 12 ? 'confirmed' : 'manual')];
   return settleRing(s);
 }
@@ -29,7 +29,7 @@ it('separates final session status from full/partial attempts and unscorable obs
   expect(attemptDetail(settled.attempts!.records[0])).toContain('сбой отслеживания');
 });
 it('keeps skips and cancellation outside evaluated attempts, and reports pair metrics', () => {
-  const s = createOppositionSession([12], 'pairs', wall); s.hand = 'left';
+  const s = createOppositionSession([12], 'pairs', wall); s.hand = 'left'; delete s.attempts!.runs;
   const skipped: Attempt = { ...attempt(s, 'cancelled', 0, 'skip'), exerciseId: 'opposition', rulesVersion: 'opposition-v1',
     settings: { target: 2, holdTargetMs: 2000, targetRadiusRatio: 0.12, maxActiveMs: 10000, partialRatio: 0.2, pairTip: 12, sequenceIndex: 0 },
     metrics: { kind: 'skipped', progress: 0 }, activeMs: 0, validTrackingMs: 0 };

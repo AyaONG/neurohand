@@ -37,7 +37,7 @@ it.each(RING_TIPS)('completes exactly once with selected tip %i, all marks and r
 it('preserves 8/12 on manual finish and reports a partial route without a full circle', () => {
   const a = harness(); a.ready(); a.path(markAngle(7) + 0.05);
   a.p = finishRingAttempt(a.p, wall(a.t));
-  expect(a.p.session.status).toBe('completed');
+  expect(a.p.session.status).toBe('in_progress');
   expect(a.p.session.exercises.ring!.reps).toBe(0);
   expect(a.p.session.attempts!.records[0]).toMatchObject({ outcome: 'partial', metrics: { marks: 8, returned: false } });
   expect(getResults(a.p.session).rows[0].text).toContain('8 / 12');
@@ -99,7 +99,7 @@ it('pause, visibility, resize and reload retain aggregates without resuming the 
 it('times out a begun but unfinished attempt without forcing full success', () => {
   const a = harness(); a.ready(); a.path(1);
   for (let i = 0; i < 310; i++) a.frame(1);
-  expect(a.p.session.status).toBe('completed');
+  expect(a.p.session.status).toBe('in_progress');
   expect(a.p.session.attempts!.records[0]).toMatchObject({ outcome: 'partial', endReason: 'timeout' });
 });
 it('projects only allowed settings and metrics, rejecting false full success', () => {

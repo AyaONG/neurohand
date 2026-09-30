@@ -1,3 +1,4 @@
+import { goalLink } from './goals';
 import { closeActive, finishAttempt, observeAttempt, startAttempt, type AttemptMetrics, type AttemptEndReason } from './attempts';
 import { markAngle, ringLayout, RING_RULES as R, settleRing } from './ring';
 import type { Program, ProgramFrame } from './program';
@@ -68,12 +69,12 @@ export function stepRingProgram(old: Program, f: ProgramFrame): Program {
   if (!log.active) {
     s.intentSince = s.travel >= R.intentAngle ? s.intentSince ?? now : null;
     if (s.intentSince === null || now - s.intentSince < R.intentMs) return { ...p, ringState: s };
-    log = startAttempt(log, { attemptId: crypto.randomUUID(), exerciseId: 'ring', protocolVersion: p.session.protocolId,
+    log = startAttempt(log, { attemptId: crypto.randomUUID(), ...goalLink(p.session), exerciseId: 'ring', protocolVersion: p.session.protocolId,
       recognizerVersion: p.session.recognitionVersion, hand: p.session.hand, rulesVersion: R.version,
       settings: { target: 1, holdTargetMs: p.session.settings.holdTargetMs, targetRadiusRatio: p.session.settings.targetRadiusRatio,
         maxActiveMs: R.maxActiveMs, ring: { ...p.session.ring! } },
-      startedAt: f.wallTime, lastObservedAt: f.wallTime, endedAt: null, outcome: null, endReason: null,
-      activeMs: 0, validTrackingMs: 0, interruptions: { count: 0, durationMs: 0 },
+      startedAt: new Date(Date.parse(f.wallTime) - (now - s.intentSince!)).toISOString(), lastObservedAt: f.wallTime, endedAt: null, outcome: null, endReason: null,
+      activeMs: now - s.intentSince!, validTrackingMs: now - s.intentSince!, interruptions: { count: 0, durationMs: 0 },
       metrics: { kind: 'ring', marks: 0, returned: false, pathLength: 0, progress: 0 } });
   }
   const a = log.active!, before = a.metrics;

@@ -380,7 +380,7 @@ it("shows home, preparation and ordered steps, with a separate live-event messag
   frame(fixture("grip_open"));
   expect(elements.announcements.textContent).toBe(announcement);
   prepare();
-  expect(elements["program-status"].textContent).toBe("Шаг 1 из 3");
+  expect(elements["program-status"].textContent).toBe("Цель 1 из 5 · Попытка 1");
   expect(modes.pinch.textContent).toContain("Сейчас");
   expect(modes.grip.textContent).toContain("Далее");
   for (let i = 0; i < 5; i++) pinch();
@@ -435,9 +435,11 @@ it('selects only the middle pair, highlights it, rejects the index and finishes 
   for (let i = 0; i < 20; i++) frame(pairPose(12, 0.4));
   expect(elements['btn-finish-attempt'].disabled).toBe(false);
   await elements['btn-finish-attempt'].fire('click');
-  expect(elements.results.children[0].textContent).toBe('Тренировка завершена');
-  expect(elements.results.children[1].textContent).toContain('фактически');
-  expect(elements.results.children[2].children[0].textContent).toContain('1 / 2 полностью · 1 частично');
+  expect(JSON.parse(memory.getItem('neurohand:progress:v3')!).current.opposition.cursor).toBe(1);
+  await elements['btn-results'].fire('click');
+  await elements.results.querySelector('#btn-finish')!.fire('click');
+  expect(elements.results.children[0].textContent).toBe('Тренировка остановлена');
+  expect(elements.results.children[2].children[0].textContent).toContain('1 / 2');
   const final = JSON.parse(memory.getItem('neurohand:progress:v3')!).history[0];
   expect(final.attempts.records.map((a: { outcome: string }) => a.outcome)).toEqual(['completed', 'partial']);
   expect(nextFrame).toBeNull();
@@ -462,7 +464,7 @@ it('requires at least one pair before opening the camera and allows explicit ski
   expect(elements.score.textContent).toContain('Задания: 1 / 2');
   for (let i = 0; i < 30; i++) frame(fixture('grip_open'));
   await elements['btn-skip-pair'].fire('click');
-  expect(elements.results.children[2].children[0].textContent).toContain('2 пропущено');
+  expect(elements.results.children[2].children[0].textContent).toContain('0 / 2');
   expect(JSON.parse(memory.getItem('neurohand:progress:v3')!).history[0].attempts.records.every((a: { outcome: string }) => a.outcome === 'cancelled')).toBe(true);
 });
 
@@ -484,6 +486,8 @@ it.each([8, 20])('wires selected ring tip %i, partial completion and history thr
   expect(elements.score.textContent).toContain('8 / 12');
   expect(elements['btn-skip-pair'].hidden).toBe(true);
   await elements['btn-finish-attempt'].fire('click');
+  await elements['btn-results'].fire('click');
+  await elements.results.querySelector('#btn-finish')!.fire('click');
   expect(elements.results.children[2].children[0].textContent).toContain('8 / 12');
   const s = JSON.parse(memory.getItem('neurohand:progress:v3')!).history[0];
   expect(s.mode).toBe('ring'); expect(s.ring.tip).toBe(tip);
@@ -517,7 +521,7 @@ it('filters history by exercise, hand and conditions, pages visible rows without
     return finishSession(s, 'stopped', '2026-09-30T00:01:00Z');
   });
   for (const hand of ['left', 'right'] as const) {
-    const s = createRingSession(8, `ring-${hand}`, '2026-09-30T00:00:00Z'); s.hand = hand;
+    const s = createRingSession(8, `ring-${hand}`, '2026-09-30T00:00:00Z'); s.hand = hand; delete s.attempts!.runs; // legacy snapshot
     s.attempts!.records.push({ attemptId: hand, exerciseId: 'ring', hand, rulesVersion: 'ring-v1', protocolVersion: s.protocolId,
       recognizerVersion: s.recognitionVersion, settings: { target: 1, maxActiveMs: 15000, targetRadiusRatio: 0.12, holdTargetMs: 2000, ring: s.ring },
       startedAt: s.startedAt, lastObservedAt: s.startedAt, endedAt: s.startedAt, outcome: 'partial', endReason: 'manual',

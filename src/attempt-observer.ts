@@ -1,3 +1,4 @@
+import { goalLink } from './goals';
 import { ATTEMPT_RULES as R, emptyAttempts, startAttempt, observeAttempt, finishAttempt, observedOutcome, type AttemptMetrics } from './attempts';
 import type { Session } from './session';
 
@@ -48,7 +49,7 @@ export function observeMovement(session: Session, previous: AttemptObserver, f: 
     : (s.baseline! - f.distance) / (s.baseline! - f.successDistance) >= R.intentRatio;
   if (!log?.active) {
     // Even a wrong gesture may be an intentional attempt, but never a success.
-    if (!moved || (!hold && !f.ready) || (hold && !f.open)) {
+    if (!moved || (hold && !f.open)) {
       return { session, observer: { ...s, candidateSince: null, candidateWall: null } };
     }
     s.candidateSince ??= f.now;
@@ -58,7 +59,7 @@ export function observeMovement(session: Session, previous: AttemptObserver, f: 
       ? { kind: 'hold', bestHoldMs: 0, targetMs: session.settings.holdTargetMs, progress: 0 }
       : { kind: 'closure', startDistance: s.baseline!, successDistance: f.successDistance, bestDistance: s.baseline!, progress: 0 };
     log = startAttempt(log ?? emptyAttempts(false), {
-      attemptId: crypto.randomUUID(), exerciseId: session.currentExercise,
+      attemptId: crypto.randomUUID(), ...goalLink(session, session.exercises[session.currentExercise]!.reps - Number(f.confirmed)), exerciseId: session.currentExercise,
       protocolVersion: session.protocolId, recognizerVersion: session.recognitionVersion,
       hand: session.hand, rulesVersion: R.version,
       settings: { target: session.exercises[session.currentExercise]!.target, holdTargetMs: session.settings.holdTargetMs,

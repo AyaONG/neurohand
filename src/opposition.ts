@@ -57,7 +57,7 @@ export function readOpposition(g: HandGeometry, tip: FingerTip): Reading {
   return { open: distance > open, closed: distance < close, error: null };
 }
 export const consumesPair = (a: Attempt): boolean => a.exerciseId === 'opposition' &&
-  (['completed', 'partial', 'incomplete'].includes(a.outcome ?? '') || a.endReason === 'skip');
+  ((a.goalId ? a.outcome === 'completed' : ['completed', 'partial', 'incomplete'].includes(a.outcome ?? '')) || a.endReason === 'skip');
 export function pairCounts(s: Session) {
   const records = s.attempts?.records.filter(a => a.exerciseId === 'opposition') ?? [];
   return { completed: records.filter(a => a.outcome === 'completed').length,

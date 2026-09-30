@@ -15,6 +15,7 @@ function attempt(): Attempt {
 }
 function activeSession() {
   const s = createSession('session', wall(0));
+  delete s.attempts!.runs; // historical attempt without recorded goal associations
   s.attempts = startAttempt(s.attempts!, attempt());
   return s;
 }
@@ -75,7 +76,7 @@ describe('intent and noise gates', () => {
     const h = movement(); h.run(100);
     h.frame({ distance: 0.1, open: false }); h.run(100);
     for (let i = 0; i < 100; i++) h.frame({ distance: 0.98 + (i % 2) * 0.04 });
-    expect(h.session.attempts).toEqual(emptyAttempts());
+    expect(h.session.attempts).toMatchObject(emptyAttempts());
   });
 
   it('requires readiness and reopening, and only a detector event produces completed', () => {
